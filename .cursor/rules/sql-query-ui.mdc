@@ -1,0 +1,812 @@
+---
+description: SQL Query Ekranı UI Dokümantasyonu - SQL sorgu arayüzü düzenlemelerinde bu kurallara uy
+globs: app/sql-query/**
+alwaysApply: false
+---
+
+# SQL Query Ekranı UI Dokümantasyonu
+
+Bu doküman, SQL Query ekranının yapısını, bileşenlerini ve tasarım kararlarını açıklar.
+
+---
+
+## Dosya Yapısı
+
+```
+app/sql-query/
+├── page.tsx                     # Ana sayfa bileşeni (state yönetimi ve layout)
+├── components/
+│   ├── index.ts                 # Export barrel
+│   ├── schema-panel.tsx         # Veritabanı şeması paneli
+│   ├── sql-editor.tsx           # Ace Editor ile SQL editör
+│   ├── results-table.tsx        # Sorgu sonuçları tablosu
+│   └── variables-panel.tsx      # Kriterler paneli (en kapsamlı bileşen)
+└── lib/
+    ├── index.ts                 # Export barrel
+    ├── types.ts                 # TypeScript interface'leri
+    ├── data.ts                  # Örnek veriler (sampleSchema, sampleResults)
+    └── utils.ts                 # Helper fonksiyonlar ve konfigürasyonlar
+```
+
+---
+
+## Genel Bakış
+
+SQL Query ekranı, kullanıcıların SQL sorguları yazıp çalıştırmasını sağlayan interaktif bir arayüzdür.
+
+### Sayfa Yapısı
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Header (h-14)                                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌──────────────────────────────────┐  ┌─────────────────────┐  │
+│  │                                  │  │                     │  │
+│  │  Database Selector               │  │  Side Panel         │  │
+│  │  ─────────────────────────────   │  │  (SchemaPanel veya  │  │
+│  │                                  │  │   VariablesPanel)   │  │
+│  │  SQL Editor (Ace)                │  │                     │  │
+│  │                                  │  │  Genişlik: w-80     │  │
+│  │  ════════════════════════════    │  │  (320px)            │  │
+│  │  Resize Handle                   │  │                     │  │
+│  │  ─────────────────────────────   │  │                     │  │
+│  │                                  │  │                     │  │
+│  │  Results Table                   │  │                     │  │
+│  │                                  │  │                     │  │
+│  │                                  │  │                     │  │
+│  └──────────────────────────────────┘  └─────────────────────┘  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Bileşenler
+
+### 1. Header (page.tsx)
+
+```tsx
+<header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b bg-background px-6">
+```
+
+**İçerik:**
+- Sidebar trigger
+- Breadcrumb: Düzenlenebilir sorgu adı
+- "Dosya Aç" butonu (YAML yükleme)
+- "Kaydet" butonu (YAML indirme)
+
+---
+
+### 2. Database Selector Bar (page.tsx)
+
+SQL editörünün üstündeki araç çubuğu.
+
+```tsx
+<div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
+```
+
+**Sol taraf:**
+- Veritabanı adı (text-xs text-muted-foreground)
+
+**Sağ taraf:**
+- Şema/Kriterler toggle butonları (border rounded-md overflow-hidden)
+
+**Toggle Buton Stili:**
+```tsx
+<Button
+  variant="ghost"
+  size="sm"
+  className={`h-6 px-2 text-xs gap-1 rounded-none ${aktif ? 'bg-muted' : ''}`}
+>
+  <Icon className="h-3 w-3" />
+  Label
+  {badge && <span className="ml-1 bg-primary/20 text-primary rounded px-1 text-[10px]">{count}</span>}
+</Button>
+```
+
+---
+
+### 3. SQLEditor (components/sql-editor.tsx)
+
+```tsx
+import { SQLEditor } from "./components/sql-editor"
+
+<SQLEditor
+  query={query}
+  onQueryChange={setQuery}
+  onRunQuery={handleRunQuery}
+  isLoading={isLoading}
+  isDarkMode={isDarkMode}
+  editorHeight={editorHeight}
+  isResizing={isResizing}
+  onResizeStart={handleResizeStart}
+/>
+```
+
+**Özellikler:**
+- Dinamik yükleme (SSR yok)
+- Tema: Light → `tomorrow`, Dark → `tomorrow_night`
+- Varsayılan yükseklik: 200px
+- Min/Max yükseklik: 100px - 500px
+- Autocomplete: SQL keywords, tablo ve kolon isimleri
+
+**Run Button (Floating):**
+```tsx
+<Button
+  size="icon"
+  className="h-10 w-10 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white"
+>
+  <Play className="h-4 w-4 ml-0.5" />
+</Button>
+```
+Pozisyon: `absolute right-4 bottom-4`
+
+**Resize Handle:**
+```tsx
+<div
+  onMouseDown={onResizeStart}
+  className="h-2 border-y bg-muted/30 cursor-row-resize flex items-center justify-center hover:bg-muted/50"
+>
+  <GripHorizontal className="h-3 w-3 text-muted-foreground/50" />
+</div>
+```
+
+---
+
+### 4. ResultsTable (components/results-table.tsx)
+
+```tsx
+import { ResultsTable } from "./components/results-table"
+
+<ResultsTable 
+  results={results} 
+  isLoading={isLoading}
+  executionTime={executionTime}
+/>
+```
+
+**Header:**
+```tsx
+<div className="flex items-center justify-between px-2 py-1 border-b bg-muted/30">
+  <span className="text-[10px] text-muted-foreground">
+    {count} satır • {time}ms
+  </span>
+  <div className="flex items-center gap-0.5">
+    <Button variant="ghost" size="icon" className="h-6 w-6">
+      <Copy className="h-3 w-3" />
+    </Button>
+    <Button variant="ghost" size="icon" className="h-6 w-6">
+      <Download className="h-3 w-3" />
+    </Button>
+  </div>
+</div>
+```
+
+**Tablo Stili:**
+```tsx
+<table className="text-xs border-collapse">
+  <thead className="sticky top-0 z-10">
+    <tr className="bg-muted border-b">
+      <th className="text-left text-[10px] uppercase tracking-wider text-muted-foreground font-medium px-2 py-1.5 whitespace-nowrap border-r last:border-r-0 bg-muted">
+```
+
+**Empty State:**
+```tsx
+<div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+  <Database className="h-8 w-8 mb-2 opacity-50" />
+  <p className="text-sm">Sorgu sonuçları burada görünecek</p>
+  <p className="text-xs mt-1">Sorguyu çalıştırmak için yeşil butona tıklayın</p>
+</div>
+```
+
+---
+
+## Side Panels
+
+### 5. SchemaPanel (components/schema-panel.tsx)
+
+Veritabanı şemasını gösteren panel.
+
+```tsx
+import { SchemaPanel } from "./components/schema-panel"
+
+<SchemaPanel 
+  schema={sampleSchema}
+  onTableClick={handleTableClick}
+  onClose={() => setSchemaPanelOpen(false)}
+/>
+```
+
+**Header:**
+```tsx
+<div className="flex items-center justify-between px-4 py-3 border-b bg-muted/20">
+  <div className="flex items-center gap-2.5">
+    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted">
+      <Database className="h-3.5 w-3.5 text-muted-foreground" />
+    </div>
+    <span className="text-sm font-medium">{schema.name}</span>
+  </div>
+  <Button variant="ghost" size="icon" className="h-6 w-6 hover:bg-muted" onClick={onClose}>
+    <X className="h-3.5 w-3.5" />
+  </Button>
+</div>
+```
+
+**Search Input:**
+```tsx
+<div className="relative">
+  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+  <Input
+    placeholder="Tablo veya kolon ara..."
+    className="h-8 pl-8 text-xs bg-muted/30 border-transparent focus:border-border"
+  />
+</div>
+```
+
+**Section Header (Models/Tables):**
+```tsx
+<button className="flex items-center gap-2 w-full group">
+  <div className={`flex h-5 w-5 items-center justify-center rounded transition-colors ${expanded ? 'bg-muted' : 'group-hover:bg-muted/50'}`}>
+    {expanded ? <ChevronDown /> : <ChevronRight />}
+  </div>
+  <div className="flex h-5 w-5 items-center justify-center rounded-md bg-blue-500/10">
+    <Table2 className="h-3 w-3 text-blue-500" />
+  </div>
+  <span className="text-xs uppercase tracking-wider text-muted-foreground">Tablolar</span>
+  <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full ml-auto">
+    {count}
+  </span>
+</button>
+```
+
+**Table Item:**
+```tsx
+<button className={`flex items-center gap-2 py-2 px-2.5 rounded-lg w-full transition-colors ${isExpanded ? 'bg-muted' : 'hover:bg-muted/50'}`}>
+  <div className="flex h-5 w-5 items-center justify-center rounded">
+    {isExpanded ? <ChevronDown /> : <ChevronRight />}
+  </div>
+  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-500/10">
+    <Table2 className="h-3 w-3 text-blue-500" />
+  </div>
+  <span className="text-sm font-medium">{table.name}</span>
+</button>
+```
+
+**Column Item:**
+```tsx
+<div className="flex items-center gap-2 py-1.5 px-2 rounded-md cursor-pointer hover:bg-muted/50">
+  <ColIcon className={`h-3 w-3 shrink-0 ${color}`} />
+  <span className="text-xs text-foreground/80">{col.name}</span>
+  <span className="text-[10px] text-muted-foreground font-mono ml-auto">{col.type}</span>
+</div>
+```
+
+**Kolon Tipi Renkleri (lib/utils.ts):**
+| Tip | Renk | İkon |
+|-----|------|------|
+| BigInteger/Integer | `text-amber-500` | Key / Hash |
+| String/Text | `text-blue-500` | Type / FileText |
+| Boolean | `text-purple-500` | ToggleLeft |
+| DateTime/Date | `text-emerald-500` | Clock / Calendar |
+| Decimal | `text-orange-500` | Hash |
+| JSON | `text-cyan-500` | FileJson |
+| FK (Foreign Key) | `text-rose-500` | Link2 |
+
+**FK Badge:**
+```tsx
+<span className="text-[9px] text-rose-500 bg-rose-500/10 px-1 py-0.5 rounded font-medium">
+  FK → {targetTable}
+</span>
+```
+
+**Footer:**
+```tsx
+<div className="px-4 py-3 border-t bg-muted/10">
+  <p className="text-[10px] text-muted-foreground">
+    <span className="font-medium">İpucu:</span> Tabloya çift tıklayarak sorguya ekleyin
+  </p>
+</div>
+```
+
+---
+
+### 6. VariablesPanel (components/variables-panel.tsx)
+
+Dinamik filtre değişkenleri paneli. En kapsamlı bileşendir.
+
+```tsx
+import { VariablesPanel } from "./components/variables-panel"
+
+<VariablesPanel
+  variables={variables}
+  onVariablesChange={setVariables}
+  onClose={() => setVariablesPanelOpen(false)}
+  selectedVariable={selectedVariable}
+  onSelectVariable={setSelectedVariable}
+  query={query}
+/>
+```
+
+**İki Mod:**
+1. **Value Entry Mode** (Değer Giriş Modu) - Varsayılan, sadece SQL'de kullanılan değişkenler gösterilir
+2. **Edit Mode** (Düzenleme Modu) - Tüm değişkenler ve detayları düzenlenir
+
+**Header:**
+```tsx
+<div className="flex items-center justify-between px-4 py-3 border-b bg-muted/20">
+  <div className="flex items-center gap-2.5">
+    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted">
+      <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
+    </div>
+    <span className="text-sm font-medium">Kriterler</span>
+    {count > 0 && (
+      <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
+        {count}
+      </span>
+    )}
+  </div>
+  <div className="flex items-center gap-2">
+    <Switch id="edit-mode" checked={isEditMode} onCheckedChange={setIsEditMode} />
+    <Label htmlFor="edit-mode" className="text-xs cursor-pointer">Düzenle</Label>
+  </div>
+</div>
+```
+
+**Empty State:**
+```tsx
+<div className="flex flex-col items-center justify-center h-full p-6">
+  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-muted/50 mb-4">
+    <Settings2 className="h-6 w-6 text-muted-foreground/50" />
+  </div>
+  <p className="text-sm font-medium text-foreground mb-1">Henüz kriter yok</p>
+  <p className="text-xs text-muted-foreground text-center mb-2">
+    SQL sorgusuna kriter eklemek için
+  </p>
+  <code className="text-xs bg-muted px-2 py-1 rounded font-mono text-foreground">
+    {"{{DEĞIŞKEN_ADI}}"}
+  </code>
+</div>
+```
+
+**Variable List Item (Edit Mode):**
+```tsx
+<div className={`flex items-center gap-2.5 py-1.5 px-2.5 rounded-md cursor-pointer group transition-colors
+  ${selectedVariable?.id === variable.id ? 'bg-muted ring-1 ring-border' : 'hover:bg-muted/50'}
+  ${!isUsedInQuery ? 'opacity-60' : ''}
+`}>
+  <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded ${iconColor}`}>
+    <TypeIcon className="h-3 w-3" />
+  </div>
+  <div className="flex-1 min-w-0">
+    <div className="flex items-center gap-1.5">
+      <span className="text-sm font-medium truncate">{variable.label}</span>
+      {!isUsedInQuery && (
+        <span className="text-[9px] bg-amber-500/20 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded font-medium shrink-0">
+          SQL'de yok
+        </span>
+      )}
+    </div>
+  </div>
+  {/* Move up/down and delete buttons */}
+</div>
+```
+
+**Değişken Tipi Renkleri (lib/utils.ts):**
+| Tip | Renk | İkon |
+|-----|------|------|
+| text | `text-blue-500` | Type |
+| number | `text-amber-500` | Hash |
+| date | `text-emerald-500` | Calendar |
+| select | `text-purple-500` | ListFilter |
+
+**Filtre Yöntemleri:**
+| Filtre | İkon | Açıklama |
+|--------|------|----------|
+| dropdown | ChevronDown | Açılır liste - Önceden tanımlanmış seçeneklerden seç |
+| search | Search | Arama kutusu - Yazarak arama yap ve seç |
+| input | TextCursorInput | Girdi kutusu - Serbest metin girişi |
+| switch | ToggleLeft | Açık/Kapalı - İki durumlu toggle switch |
+
+**Switch Filtre Yöntemi:**
+Switch seçildiğinde değişken tipi gösterilmez ve özel SQL değerleri tanımlanır:
+
+```tsx
+<div className="space-y-2">
+  <div className="flex items-center gap-2">
+    <div className="w-16 shrink-0">
+      <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Açık:</span>
+    </div>
+    <Input value={switchTrueValue} placeholder="true" className="h-8 text-sm font-mono" />
+  </div>
+  <div className="flex items-center gap-2">
+    <div className="w-16 shrink-0">
+      <span className="text-xs font-medium text-rose-600 dark:text-rose-400">Kapalı:</span>
+    </div>
+    <Input value={switchFalseValue} placeholder="false" className="h-8 text-sm font-mono" />
+  </div>
+</div>
+```
+
+**Type Selection Grid:**
+```tsx
+<div className="grid grid-cols-2 gap-2">
+  {types.map(type => (
+    <button className={`flex items-center gap-2 p-2.5 rounded-md border transition-all ${selected ? 'border-foreground/20 bg-muted' : 'border-transparent hover:bg-muted/50'}`}>
+      <Icon className={`h-3.5 w-3.5 ${color}`} />
+      <span className="text-xs font-medium">{label}</span>
+    </button>
+  ))}
+</div>
+```
+
+**Filter Type Card:**
+```tsx
+<div className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${selected ? 'border-foreground/20 bg-muted' : 'border-transparent hover:bg-muted/50'}`}>
+  <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${selected ? 'bg-foreground/10' : 'bg-muted'}`}>
+    <Icon className="h-4 w-4 text-muted-foreground" />
+  </div>
+  <div className="flex-1 min-w-0">
+    <span className="text-sm font-medium">{label}</span>
+    <p className="text-[11px] text-muted-foreground mt-0.5">{description}</p>
+  </div>
+</div>
+```
+
+**Toggle Selection (Tek/Çoklu değer):**
+```tsx
+<div className="flex gap-2">
+  <button className={`flex-1 flex items-center justify-center gap-2 p-2.5 rounded-md border transition-all ${selected ? 'border-foreground/20 bg-muted' : 'border-transparent hover:bg-muted/50'}`}>
+    <div className="h-3 w-3 rounded-full border-2 flex items-center justify-center">
+      {selected && <div className="h-1.5 w-1.5 rounded-full bg-current" />}
+    </div>
+    <span className="text-xs font-medium">{label}</span>
+  </button>
+</div>
+```
+
+**Regex Doğrulama (sadece text tipi ve input filter için):**
+```tsx
+<div className="space-y-2">
+  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Regex Doğrulama</Label>
+  <Input
+    value={regexPattern}
+    placeholder="Örn: ^[A-Z]{2}-\d{4}$"
+    className="h-9 text-sm font-mono"
+  />
+  <p className="text-[10px] text-muted-foreground">
+    Girilen değerin uyması gereken regex pattern
+  </p>
+</div>
+```
+
+**Varsayılan Değer Alanı Mantığı:**
+
+| Filtre Yöntemi | Varsayılan Değer Kontrolü |
+|----------------|---------------------------|
+| Açılır liste | DefaultValueCombobox (Command bileşeni) |
+| Arama kutusu | Text Input |
+| Girdi kutusu | Text Input |
+| Açık/Kapalı | Switch toggle |
+
+**DefaultValueCombobox (dahili bileşen):**
+
+Açılır liste seçildiğinde gösterilir. Command bileşeni kullanır.
+
+```tsx
+<Popover>
+  <PopoverTrigger asChild>
+    <button role="combobox" className="flex items-center justify-between w-full h-9 px-3 rounded-md border bg-transparent text-sm">
+      <span>{displayText || 'Değer seçin...'}</span>
+      <div className="flex items-center gap-1">
+        {selectedValues.length > 0 && (
+          <span role="button" onClick={handleClear} className="h-4 w-4 ...">
+            <X className="h-3 w-3" />
+          </span>
+        )}
+        <ChevronDown className={`h-4 w-4 ${open ? 'rotate-180' : ''}`} />
+      </div>
+    </button>
+  </PopoverTrigger>
+  <PopoverContent className="w-[280px] p-0" align="start">
+    <Command>
+      <CommandInput placeholder="Değer ara..." className="h-9" />
+      <CommandList>
+        <CommandEmpty>Değer bulunamadı.</CommandEmpty>
+        
+        {/* Hepsini Seç - sadece çoklu seçimde */}
+        {multiSelect && (
+          <CommandGroup>
+            <CommandItem onSelect={handleSelectAll}>
+              <Checkbox checked={isIndeterminate ? "indeterminate" : isAllSelected} />
+              <span>Hepsini seç</span>
+            </CommandItem>
+          </CommandGroup>
+        )}
+        
+        <CommandGroup>
+          {values.map(item => (
+            <CommandItem key={item.value} onSelect={() => handleToggle(item.value)}>
+              {multiSelect ? (
+                <Checkbox checked={isSelected} />
+              ) : (
+                <Check className={`h-4 w-4 ${isSelected ? 'opacity-100' : 'opacity-0'}`} />
+              )}
+              <span>{item.label}</span>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      </CommandList>
+    </Command>
+    
+    {/* Footer - sadece çoklu seçimde */}
+    {multiSelect && (
+      <div className="p-2 border-t bg-muted/20">
+        <Button size="sm" className="w-full h-8 text-xs">Filtreyi güncelle</Button>
+      </div>
+    )}
+  </PopoverContent>
+</Popover>
+```
+
+**Zorunlu Alan (Switch ile):**
+
+```tsx
+<div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-transparent hover:bg-muted/50">
+  <div>
+    <div className="text-sm font-medium">Her zaman bir değer gerektirir</div>
+    <p className="text-[11px] text-muted-foreground">
+      Etkinleştirildiğinde, insanlar değeri değiştirebilir veya sıfırlayabilir, ancak tamamen silemezler.
+    </p>
+  </div>
+  <Switch
+    checked={selectedVariable.required}
+    onCheckedChange={(checked) => handleUpdateVariable(selectedVariable.id, { required: checked })}
+  />
+</div>
+```
+
+---
+
+## Veri Modelleri (lib/types.ts)
+
+### Variable Interface
+
+```typescript
+interface Variable {
+  id: string
+  name: string                                    // VARIABLE_1, VARIABLE_2, ...
+  type: "text" | "number" | "date" | "select"
+  label: string                                   // Kullanıcıya gösterilen isim
+  filterType: "dropdown" | "search" | "input" | "switch"
+  multiSelect: boolean
+  defaultValue: string                            // JSON string for multi-select: '["val1","val2"]'
+  required: boolean
+  valuesSource: "model" | "custom"
+  customValues: string                            // Her satırda bir değer
+  regexPattern?: string                           // Regex pattern for text validation
+  regexErrorMessage?: string                      // Custom error message for regex validation
+  switchTrueValue?: string                        // Value when switch is ON
+  switchFalseValue?: string                       // Value when switch is OFF
+}
+```
+
+### QueryFile Interface
+
+```typescript
+interface QueryFile {
+  name: string
+  sql: string
+  variables: Variable[]
+}
+```
+
+### Schema Interface
+
+```typescript
+interface Column {
+  name: string
+  type: string
+  fk?: string  // Foreign key hedef tablosu
+}
+
+interface Table {
+  name: string
+  columns: Column[]
+}
+
+interface Model {
+  name: string
+  id: number
+}
+
+interface Schema {
+  name: string
+  models: Model[]
+  tables: Table[]
+}
+```
+
+---
+
+## Helper Fonksiyonlar (lib/utils.ts)
+
+```typescript
+// Parse default value (can be JSON array or single value)
+function parseDefaultValues(value: string): string[]
+
+// Stringify default values
+function stringifyDefaultValues(values: string[]): string
+
+// Get column icon and color
+function getColumnIcon(type: string, hasFk?: boolean): { icon: React.ElementType; color: string }
+
+// Generate name from label
+function generateNameFromLabel(label: string): string
+```
+
+---
+
+## Keyboard Shortcuts
+
+| Kısayol | Aksiyon |
+|---------|---------|
+| `Cmd/Ctrl + Enter` | Sorguyu çalıştır |
+
+---
+
+## YAML Dosya Formatı
+
+SQL sorguları YAML formatında kaydedilir ve yüklenir:
+
+```yaml
+name: Örnek Sorgu
+sql: |
+  SELECT * FROM ACCOUNTS
+  WHERE STATUS = {{STATUS}}
+variables:
+  - id: var_1234567890
+    name: STATUS
+    type: text
+    label: Durum
+    filterType: dropdown
+    multiSelect: false
+    defaultValue: active
+    required: true
+    valuesSource: custom
+    customValues: |
+      active, Aktif
+      inactive, Pasif
+```
+
+---
+
+## Renk Paleti (SQL Query Özel)
+
+### Accent Renkler
+```css
+/* Run Button */
+bg-emerald-600 hover:bg-emerald-700
+
+/* Type Colors */
+text-blue-500    /* String/Text */
+text-amber-500   /* Number/Integer */
+text-emerald-500 /* Date/DateTime */
+text-purple-500  /* Boolean/Select */
+text-orange-500  /* Decimal */
+text-cyan-500    /* JSON */
+text-rose-500    /* Foreign Key / Switch */
+
+/* Background Variants */
+bg-blue-500/10
+bg-amber-500/10
+bg-emerald-500/10
+bg-purple-500/10
+bg-rose-500/10
+```
+
+---
+
+## Genel Panel Stili
+
+Tüm yan paneller bu yapıyı takip eder:
+
+```tsx
+<div className="h-full flex flex-col border-l bg-card">
+  {/* Header - bg-muted/20 */}
+  <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/20">
+    <div className="flex items-center gap-2.5">
+      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted">
+        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+      </div>
+      <span className="text-sm font-medium">{title}</span>
+      {badge}
+    </div>
+    <CloseButton />
+  </div>
+
+  {/* Content - overflow-auto */}
+  <div className="flex-1 overflow-auto">
+    {content}
+  </div>
+
+  {/* Footer (opsiyonel) - border-t bg-muted/10 */}
+  <div className="px-4 py-3 border-t bg-muted/10">
+    {footer}
+  </div>
+</div>
+```
+
+---
+
+## Modal (Dialog) Stili
+
+Değerleri Düzenle modal'ı için:
+
+```tsx
+<Dialog>
+  <DialogContent className="max-w-2xl p-0 gap-0 overflow-hidden">
+    <DialogHeader className="px-5 py-3 border-b bg-muted/30">
+      <DialogTitle className="text-sm font-medium flex items-center gap-2">
+        <ListFilter className="h-4 w-4 text-muted-foreground" />
+        {selectedVariable?.label} için seçenekler
+      </DialogTitle>
+    </DialogHeader>
+    
+    {/* Veri Kaynağı Seçimi */}
+    {/* Mod Seçici (Tablo/JSON) */}
+    {/* Değerler Tablosu veya JSON editörü */}
+
+    <div className="flex items-center justify-between px-5 py-3 border-t bg-muted/20">
+      <Button variant="outline" size="sm" onClick={handleAddCustomValueRow}>
+        <Plus className="h-3 w-3" />
+        Satır Ekle
+      </Button>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm">İptal</Button>
+        <Button size="sm">Kaydet</Button>
+      </div>
+    </div>
+  </DialogContent>
+</Dialog>
+```
+
+---
+
+## Tipografi Özeti
+
+| Element | Class |
+|---------|-------|
+| Panel başlık | `text-sm font-medium` |
+| Section başlık | `text-xs uppercase tracking-wider text-muted-foreground` |
+| Liste item | `text-sm` / `text-sm font-medium` |
+| Alt metin | `text-xs text-muted-foreground` |
+| Çok küçük metin | `text-[10px]` / `text-[11px]` |
+| Mono metin | `font-mono text-[10px]` |
+| Badge | `text-[10px] bg-muted px-1.5 py-0.5 rounded-full` |
+
+---
+
+## İkon Boyutları
+
+| Kullanım | Boyut |
+|----------|-------|
+| Panel header icon (container) | `h-6 w-6` |
+| Panel header icon | `h-3.5 w-3.5` |
+| Liste item icon (container) | `h-7 w-7` / `h-6 w-6` |
+| Liste item icon | `h-3.5 w-3.5` / `h-3 w-3` |
+| Inline icon | `h-3 w-3` |
+| Action button icon | `h-3 w-3` / `h-3.5 w-3.5` |
+| Empty state icon | `h-6 w-6` |
+
+---
+
+## Yasaklar (SQL Query Ekranı)
+
+1. **Gölge kullanmayın** - Panel'lerde shadow yok
+2. **Gradient kullanmayın** - Düz arka planlar
+3. **Büyük radius kullanmayın** - `rounded-lg` maksimum
+4. **Fazla renk kullanmayın** - Tip renkleri haricinde mono tonlar
+5. **Panel genişliğini değiştirmeyin** - Sabit `w-80` (320px)
+6. **Button içinde button kullanmayın** - Hydration hatası verir. Alternatif: `<span role="button" tabIndex={0}>` kullanın
+7. **PopoverTrigger içinde iç içe tıklanabilir elemanlar koymayın** - Clear butonları için span kullanın

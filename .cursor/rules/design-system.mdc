@@ -1,0 +1,403 @@
+---
+description: ACME ERP Tasarım Sistemi - Yeni sayfa ve bileşen oluştururken bu kurallara uy
+globs: 
+alwaysApply: false
+---
+
+# ACME ERP Tasarım Sistemi
+
+Bu doküman, ACME ERP uygulamasının tasarım prensiplerini tanımlar. Yeni sayfalar ve bileşenler oluştururken bu kurallara uyulmalıdır.
+
+## Genel Prensipler
+
+- **Minimalist yaklaşım**: Gereksiz süslemelerden kaçın
+- **Whitespace**: Bol boşluk kullanın, sıkışık tasarımlardan kaçının
+- **Tutarlılık**: Tüm sayfalarda aynı yapı ve stili koruyun
+- **Fonksiyonellik**: Görsellik değil, kullanılabilirlik ön planda
+
+---
+
+## Renk Paleti
+
+Monokromatik (siyah-beyaz-gri) palet kullanılır. Renkli vurgular minimum düzeyde tutulur.
+
+### Light Mode
+- Background: `#fafafa`
+- Foreground: `#0a0a0a`
+- Muted: `#f5f5f5`
+- Muted Foreground: `#737373`
+- Border: `#e5e5e5`
+- Card: `#ffffff`
+
+### Dark Mode
+- Background: `#0a0a0a`
+- Foreground: `#fafafa`
+- Muted: `#1f1f1f`
+- Muted Foreground: `#a3a3a3`
+- Border: `#262626`
+- Card: `#141414`
+
+---
+
+## Tipografi
+
+### Font
+- Font ailesi: Geist Sans (sistem fontu)
+- Antialiased rendering
+
+### Başlık Stilleri
+```
+Sayfa Başlığı: text-2xl font-medium tracking-tight
+Alt Başlık: text-sm text-muted-foreground
+Bölüm Başlığı: text-xs uppercase tracking-wider text-muted-foreground
+Kart Başlığı: text-sm font-medium
+```
+
+### Metin Stilleri
+```
+Normal metin: text-sm
+Küçük metin: text-xs
+Link: text-sm text-muted-foreground hover:text-foreground
+```
+
+---
+
+## Spacing
+
+### Sayfa Yapısı
+```tsx
+<main className="flex-1 overflow-auto">
+  <div className="max-w-5xl mx-auto px-6 py-12">
+    {/* İçerik */}
+  </div>
+</main>
+```
+
+### Bölümler Arası
+- Bölümler arası: `mb-10` veya `mb-12`
+- Başlık ile içerik arası: `mb-4` veya `mb-6`
+
+### Grid Boşlukları
+- Kartlar arası: `gap-3` veya `gap-4`
+- Kolonlar arası: `gap-8` veya `gap-12`
+
+---
+
+## Sayfa Yapısı
+
+Her sayfa şu yapıyı takip eder:
+
+```tsx
+<SidebarProvider defaultOpen={false}>
+  <AppSidebar />
+  <SidebarInset className="h-svh overflow-hidden">
+    {/* Header - Sabit */}
+    <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b bg-background px-6">
+      <div className="flex flex-1 items-center gap-4">
+        <SidebarTrigger className="-ml-1" />
+        <Separator orientation="vertical" className="h-4" />
+        <Breadcrumb>
+          {/* Breadcrumb içeriği */}
+        </Breadcrumb>
+      </div>
+    </header>
+
+    {/* Main Content - Kaydırılabilir */}
+    <main className="flex-1 overflow-auto">
+      <div className="max-w-5xl mx-auto px-6 py-12">
+        {/* Sayfa içeriği */}
+      </div>
+    </main>
+  </SidebarInset>
+</SidebarProvider>
+```
+
+---
+
+## Header
+
+```tsx
+<header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b bg-background px-6">
+```
+
+### Özellikler
+- Yükseklik: `h-14`
+- Yapışkan: `sticky top-0`
+- Alt border: `border-b`
+- Arka plan: `bg-background`
+
+### Breadcrumb
+```tsx
+<Breadcrumb>
+  <BreadcrumbList>
+    <BreadcrumbItem>
+      <BreadcrumbLink href="/parent" className="text-muted-foreground hover:text-foreground text-sm">
+        Üst Sayfa
+      </BreadcrumbLink>
+    </BreadcrumbItem>
+    <BreadcrumbSeparator />
+    <BreadcrumbItem>
+      <BreadcrumbPage className="text-sm font-medium">Mevcut Sayfa</BreadcrumbPage>
+    </BreadcrumbItem>
+  </BreadcrumbList>
+</Breadcrumb>
+```
+
+---
+
+## Bileşenler
+
+### Sayfa Başlığı
+```tsx
+<div className="mb-10">
+  <h1 className="text-2xl font-medium tracking-tight mb-1">Sayfa Başlığı</h1>
+  <p className="text-sm text-muted-foreground">Sayfa açıklaması</p>
+</div>
+```
+
+### Bölüm Başlığı
+```tsx
+<h2 className="text-xs uppercase tracking-wider text-muted-foreground mb-4">
+  BÖLÜM BAŞLIĞI
+</h2>
+```
+
+### Kısayol Kartı
+```tsx
+function ShortcutCard({ title, count, href, icon: Icon }) {
+  return (
+    <a 
+      href={href}
+      className="group flex items-center gap-4 p-4 border rounded-lg bg-card hover:bg-muted/50 transition-colors"
+    >
+      <div className="flex h-10 w-10 items-center justify-center rounded-md bg-muted">
+        <Icon className="h-5 w-5 text-muted-foreground" />
+      </div>
+      <div className="flex-1">
+        <div className="text-sm font-medium">{title}</div>
+        <div className="text-xs text-muted-foreground">{count} kayıt</div>
+      </div>
+      <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+    </a>
+  )
+}
+```
+
+### Link Listesi
+```tsx
+function LinkItem({ title, href }) {
+  return (
+    <a 
+      href={href}
+      className="block py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+    >
+      {title}
+    </a>
+  )
+}
+```
+
+### İstatistik Kartı
+```tsx
+function StatCard({ title, value, change, changeType }) {
+  return (
+    <div className="p-6 border-b md:border-b-0 md:border-r last:border-r-0 last:border-b-0">
+      <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">{title}</p>
+      <p className="text-2xl font-light tracking-tight mb-1">{value}</p>
+      <div className="flex items-center gap-1.5">
+        {changeType === "up" ? (
+          <TrendingUp className="h-3 w-3 text-foreground/70" />
+        ) : (
+          <TrendingDown className="h-3 w-3 text-foreground/70" />
+        )}
+        <span className="text-xs text-muted-foreground">
+          {changeType === "up" ? "+" : "-"}{change}
+        </span>
+      </div>
+    </div>
+  )
+}
+```
+
+### Hızlı İşlem
+```tsx
+function QuickAction({ title, href, icon: Icon }) {
+  return (
+    <a href={href} className="flex items-center justify-between py-3 group">
+      <div className="flex items-center gap-3">
+        <Icon className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm">{title}</span>
+      </div>
+      <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+    </a>
+  )
+}
+```
+
+---
+
+## Form Elemanları
+
+### Label
+```tsx
+<Label className="text-xs uppercase tracking-wider text-muted-foreground">
+  Alan Adı
+</Label>
+```
+
+### Input
+```tsx
+<Input className="h-10 rounded-md" />
+```
+
+### Select
+```tsx
+<Select>
+  <SelectTrigger className="h-10 rounded-md">
+    <SelectValue placeholder="Seçin" />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectItem value="option">Seçenek</SelectItem>
+  </SelectContent>
+</Select>
+```
+
+### Checkbox
+```tsx
+<div className="flex items-center space-x-2">
+  <Checkbox id="checkbox" className="rounded-sm" />
+  <Label htmlFor="checkbox" className="text-sm text-muted-foreground font-normal cursor-pointer">
+    Checkbox metni
+  </Label>
+</div>
+```
+
+---
+
+## Tablo
+
+```tsx
+<div className="border rounded-lg overflow-hidden">
+  <table className="w-full">
+    <thead>
+      <tr className="border-b bg-muted/30">
+        <th className="text-left text-xs uppercase tracking-wider text-muted-foreground px-4 py-3 font-medium">
+          Kolon
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr className="border-b last:border-b-0">
+        <td className="px-4 py-3 text-sm">İçerik</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+```
+
+---
+
+## Boş Durum (Empty State)
+
+```tsx
+<Empty className="border border-dashed rounded-lg">
+  <EmptyHeader>
+    <EmptyMedia variant="icon">
+      <FolderOpen className="h-5 w-5" />
+    </EmptyMedia>
+    <EmptyTitle className="text-lg font-light">Başlık</EmptyTitle>
+    <EmptyDescription className="text-sm">Açıklama metni</EmptyDescription>
+  </EmptyHeader>
+  <EmptyContent>
+    <Button size="sm" className="h-8">Aksiyon</Button>
+  </EmptyContent>
+</Empty>
+```
+
+---
+
+## Butonlar
+
+### Primary Button
+```tsx
+<Button size="sm" className="h-8">
+  <Plus className="h-3.5 w-3.5 mr-1.5" />
+  Metin
+</Button>
+```
+
+### Outline Button
+```tsx
+<Button variant="outline" size="sm" className="h-7 text-xs">
+  Metin
+</Button>
+```
+
+### Ghost Button (İkon)
+```tsx
+<Button variant="ghost" size="icon" className="h-8 w-8">
+  <Icon className="h-4 w-4" />
+</Button>
+```
+
+---
+
+## İkonlar
+
+- Boyut: `h-4 w-4` (küçük), `h-5 w-5` (normal)
+- Renk: `text-muted-foreground`
+- Kütüphane: Lucide React
+
+---
+
+## Yasaklar ❌
+
+1. **Gradient kullanmayın** - Düz renkler tercih edin
+2. **Gölge kullanmayın** - `shadow-*` class'larından kaçının
+3. **Renkli arka planlar kullanmayın** - Mono tonlarda kalın
+4. **Büyük border-radius kullanmayın** - `rounded-lg` maksimum
+5. **Animasyonları abartmayın** - Sadece `transition-colors`, `transition-opacity`
+6. **Backdrop blur kullanmayın** - Düz arka planlar tercih edin
+7. **Pattern/texture kullanmayın** - Düz yüzeyler kullanın
+
+---
+
+## Border Radius
+
+```
+Küçük: rounded-sm veya rounded
+Normal: rounded-md
+Maksimum: rounded-lg
+```
+
+---
+
+## Geçişler (Transitions)
+
+```
+Renk geçişi: transition-colors
+Opaklık geçişi: transition-opacity
+Tümü: transition-all (dikkatli kullanın)
+```
+
+---
+
+## Responsive Tasarım
+
+- `max-w-5xl` ile içerik genişliği sınırlı
+- Grid'ler için: `grid-cols-1 md:grid-cols-3`
+- Mobilde sidebar kapalı: `defaultOpen={false}`
+
+---
+
+## Dosya Yapısı
+
+```
+app/
+  [modül]/
+    page.tsx          # Liste sayfası
+    [id]/
+      page.tsx        # Detay sayfası
+    new/
+      page.tsx        # Yeni kayıt sayfası
+```
