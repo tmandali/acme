@@ -1,4 +1,4 @@
-name: Yeni sorgu
+name: Aktif Hesaplar Listesi
 sql: |-
   SELECT *
   FROM ACCOUNTS

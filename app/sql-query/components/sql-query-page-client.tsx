@@ -14,14 +14,13 @@ import {
     SidebarProvider,
     SidebarTrigger,
 } from "@/components/ui/sidebar"
-import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import {
     Database,
-    Save,
+    Download,
+    Upload,
     Settings2,
-    FolderOpen,
     GripVertical,
 } from "lucide-react"
 
@@ -38,9 +37,10 @@ import { parseDefaultValues, processJinjaTemplate } from "../lib/utils"
 
 interface SQLQueryPageClientProps {
     initialData?: QueryFile
+    slug?: string
 }
 
-export default function SQLQueryPageClient({ initialData }: SQLQueryPageClientProps) {
+export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageClientProps) {
     const [query, setQuery] = useState(initialData?.sql || "select * from ACCOUNTS")
     const [results, setResults] = useState<Record<string, unknown>[]>([])
     const [isLoading, setIsLoading] = useState(false)
@@ -57,7 +57,7 @@ export default function SQLQueryPageClient({ initialData }: SQLQueryPageClientPr
     const [isResultsFullscreen, setIsResultsFullscreen] = useState(false)
     const [sidePanelWidth, setSidePanelWidth] = useState(320) // Shared width for both panels
     const [isResizingPanel, setIsResizingPanel] = useState(false)
-    const [showGeneratedQuery, setShowGeneratedQuery] = useState(false)
+    const [activeTab, setActiveTab] = useState<"edit" | "preview" | "api">("edit")
     const containerRef = useRef<HTMLDivElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const queryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -406,12 +406,12 @@ export default function SQLQueryPageClient({ initialData }: SQLQueryPageClientPr
                             className="hidden"
                         />
                         <Button variant="outline" size="sm" className="gap-2" onClick={handleOpenFileClick}>
-                            <FolderOpen className="h-3.5 w-3.5" />
-                            Dosya Aç
+                            <Upload className="h-3.5 w-3.5" />
+                            Yükle
                         </Button>
                         <Button variant="outline" size="sm" className="gap-2" onClick={handleSaveToYaml}>
-                            <Save className="h-3.5 w-3.5" />
-                            Kaydet
+                            <Download className="h-3.5 w-3.5" />
+                            İndir
                         </Button>
                     </div>
                 </header>
@@ -427,16 +427,18 @@ export default function SQLQueryPageClient({ initialData }: SQLQueryPageClientPr
                                 <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
                                     <span className="text-xs text-muted-foreground">Sample Database</span>
                                     <div className="flex items-center gap-4">
-                                        <div className="flex items-center space-x-2">
-                                            <Switch
-                                                id="generate-mode"
-                                                checked={showGeneratedQuery}
-                                                onCheckedChange={setShowGeneratedQuery}
-                                                className="scale-75"
-                                            />
-                                            <Label htmlFor="generate-mode" className="text-xs cursor-pointer w-20">
-                                                {showGeneratedQuery ? "Önizleme" : "Düzenleme"}
-                                            </Label>
+                                        <div className="flex items-center">
+                                            <Tabs
+                                                value={activeTab}
+                                                onValueChange={(val) => setActiveTab(val as "edit" | "preview" | "api")}
+                                                className="w-56"
+                                            >
+                                                <TabsList className="grid w-full grid-cols-3 h-7">
+                                                    <TabsTrigger value="edit" className="text-xs px-2 py-1">Query</TabsTrigger>
+                                                    <TabsTrigger value="preview" className="text-xs px-2 py-1">SQL</TabsTrigger>
+                                                    <TabsTrigger value="api" className="text-xs px-2 py-1">API</TabsTrigger>
+                                                </TabsList>
+                                            </Tabs>
                                         </div>
                                         <div className="flex items-center border rounded-md overflow-hidden">
                                             <Button
@@ -481,22 +483,50 @@ export default function SQLQueryPageClient({ initialData }: SQLQueryPageClientPr
                                 </div>
 
                                 {/* SQL Editor */}
-                                <SQLEditor
-                                    query={showGeneratedQuery ? processQuery(query).processedQuery : query}
-                                    onQueryChange={(newQuery) => {
-                                        if (!showGeneratedQuery) {
-                                            setQuery(newQuery)
-                                        }
-                                    }}
-                                    onRunQuery={handleRunQuery}
-                                    onCancelQuery={handleCancelQuery}
-                                    isLoading={isLoading}
-                                    isDarkMode={isDarkMode}
-                                    editorHeight={editorHeight}
-                                    isResizing={isResizing}
-                                    onResizeStart={handleResizeStart}
-                                    readOnly={showGeneratedQuery}
-                                />
+                                {activeTab === "api" ? (
+                                    <div className="p-4 overflow-auto border-b bg-muted/10 font-mono text-xs" style={{ height: editorHeight }}>
+                                        <div className="mb-4">
+                                            <div className="font-semibold mb-2 text-muted-foreground">API Endpoint</div>
+                                            <div className="bg-muted p-2 rounded select-all">
+                                                POST http://localhost:3000/sql-query/{slug || 'api/execute'}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div className="font-semibold mb-2 text-muted-foreground">Example Request (cURL)</div>
+                                            <pre className="bg-muted p-2 rounded whitespace-pre-wrap select-all">
+                                                {`curl -X POST http://localhost:3000/sql-query/${slug || 'api/execute'} \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "variables": {${variables.map(v => {
+                                                    const val = v.value || v.defaultValue
+                                                    if (v.filterType === 'switch') {
+                                                        return `\n      "${v.name}": ${val === v.switchTrueValue}`
+                                                    }
+                                                    return `\n      "${v.name}": "${val}"`
+                                                }).join(',')}
+    }
+  }'`}
+                                            </pre>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <SQLEditor
+                                        query={activeTab === "preview" ? processQuery(query).processedQuery : query}
+                                        onQueryChange={(newQuery) => {
+                                            if (activeTab === "edit") {
+                                                setQuery(newQuery)
+                                            }
+                                        }}
+                                        onRunQuery={handleRunQuery}
+                                        onCancelQuery={handleCancelQuery}
+                                        isLoading={isLoading}
+                                        isDarkMode={isDarkMode}
+                                        editorHeight={editorHeight}
+                                        isResizing={isResizing}
+                                        onResizeStart={handleResizeStart}
+                                        readOnly={activeTab === "preview"}
+                                    />
+                                )}
                             </div>
                         )}
 

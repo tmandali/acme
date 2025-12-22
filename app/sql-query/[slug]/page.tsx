@@ -34,7 +34,7 @@ export default async function QueryPage({ params }: PageProps) {
         // Ensure the data matches the expected structure slightly or at least has valid parts
         // We pass it to the client component which handles partial data gracefully
 
-        return <SQLQueryPageClient initialData={parsedData} />
+        return <SQLQueryPageClient initialData={parsedData} slug={slug} />
     } catch (error) {
         console.error(`Error loading query file ${slug}:`, error)
         // If file exists but fails to parse, we might want to show error or 404. 
