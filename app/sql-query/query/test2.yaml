@@ -1,0 +1,68 @@
+name: Yeni sorgu
+sql: |-
+  SELECT *
+  FROM ACCOUNTS
+  WHERE ACCOUNT_ID={{ACCOUNT_ID}}
+  AND SOURCE IN {{SOURCE}}
+  AND {{STATUS}}
+  AND CREATED_AT BETWEEN {{CREATED_AT}}
+variables:
+  - id: var_1766260950658_STATUS
+    name: STATUS
+    type: text
+    label: Aktif/Pasif Hesaplar
+    filterType: switch
+    multiSelect: false
+    defaultValue: STATUS = 1
+    required: false
+    valuesSource: custom
+    customValues: ""
+    switchTrueValue: STATUS = 1
+    switchFalseValue: STATUS = 0
+    value: ""
+  - id: var_1766260879266_ACCOUNT_ID
+    name: ACCOUNT_ID
+    type: number
+    label: Hesap No
+    filterType: input
+    multiSelect: false
+    defaultValue: ""
+    required: true
+    valuesSource: custom
+    customValues: ""
+    switchTrueValue: ""
+    switchFalseValue: ""
+    value: ""
+  - id: var_1766262645410_SOURCE
+    name: SOURCE
+    type: number
+    label: Kaynak
+    filterType: dropdown
+    multiSelect: true
+    defaultValue: "[\"1\",\"2\"]"
+    required: true
+    valuesSource: custom
+    customValues: |-
+      1, değer 1
+      2, değer 2
+      3, değer 3
+      4, değer 4
+      5, değer 5
+    switchTrueValue: ""
+    switchFalseValue: ""
+    value: ""
+  - id: var_1766317206659_CREATED_AT
+    name: CREATED_AT
+    type: date
+    label: Oluşturma Tarihi
+    filterType: between
+    multiSelect: false
+    defaultValue: "20250606"
+    value: ""
+    required: true
+    valuesSource: custom
+    customValues: ""
+    switchTrueValue: ""
+    switchFalseValue: ""
+    betweenStart: "20251222"
+    betweenEnd: "20251228"

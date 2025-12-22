@@ -45,12 +45,12 @@ import { Calendar } from "@/components/ui/calendar"
 import { format, parse, isValid } from "date-fns"
 import { tr } from "date-fns/locale"
 import type { Variable } from "../lib/types"
-import { 
-  parseDefaultValues, 
-  stringifyDefaultValues, 
-  variableTypeConfig, 
+import {
+  parseDefaultValues,
+  stringifyDefaultValues,
+  variableTypeConfig,
   filterTypeConfig,
-  generateNameFromLabel 
+  generateNameFromLabel
 } from "../lib/utils"
 
 // Açılır liste (Combobox) için Varsayılan Değer Bileşeni
@@ -62,7 +62,7 @@ function DefaultValueCombobox({
   onUpdate: (updates: Partial<Variable>) => void
 }) {
   const [open, setOpen] = useState(false)
-  
+
   // Parse custom values
   const customValuesList = selectedVariable.customValues
     .split('\n')
@@ -172,7 +172,7 @@ function DefaultValueCombobox({
             <CommandInput placeholder="Değer ara..." className="h-9" />
             <CommandList>
               <CommandEmpty>Değer bulunamadı.</CommandEmpty>
-              
+
               {/* Select All - sadece çoklu seçimde göster */}
               {selectedVariable.multiSelect && customValuesList.length > 1 && (
                 <CommandGroup>
@@ -181,13 +181,12 @@ function DefaultValueCombobox({
                     className="flex items-center justify-between"
                   >
                     <div className="flex items-center gap-2">
-                      <div className={`h-4 w-4 rounded border-2 flex items-center justify-center transition-colors ${
-                        isAllSelected 
-                          ? 'bg-primary border-primary' 
-                          : isIndeterminate 
-                            ? 'bg-primary/50 border-primary/50' 
-                            : 'border-muted-foreground/30'
-                      }`}>
+                      <div className={`h-4 w-4 rounded border-2 flex items-center justify-center transition-colors ${isAllSelected
+                        ? 'bg-primary border-primary'
+                        : isIndeterminate
+                          ? 'bg-primary/50 border-primary/50'
+                          : 'border-muted-foreground/30'
+                        }`}>
                         {(isAllSelected || isIndeterminate) && (
                           <div className="h-1.5 w-1.5 bg-primary-foreground rounded-sm" />
                         )}
@@ -200,7 +199,7 @@ function DefaultValueCombobox({
                   </CommandItem>
                 </CommandGroup>
               )}
-              
+
               <CommandGroup heading={selectedVariable.multiSelect ? "Değerler" : undefined}>
                 {customValuesList.map((item) => {
                   const isSelected = selectedValues.includes(item.value)
@@ -212,9 +211,8 @@ function DefaultValueCombobox({
                       className="flex items-center justify-between"
                     >
                       <span>{item.label}</span>
-                      <Check className={`h-4 w-4 text-primary transition-opacity ${
-                        isSelected ? 'opacity-100' : 'opacity-0'
-                      }`} />
+                      <Check className={`h-4 w-4 text-primary transition-opacity ${isSelected ? 'opacity-100' : 'opacity-0'
+                        }`} />
                     </CommandItem>
                   )
                 })}
@@ -229,7 +227,7 @@ function DefaultValueCombobox({
             </p>
           </div>
         )}
-        
+
         {/* Footer - sadece çoklu seçimde ve değerler varsa göster */}
         {selectedVariable.multiSelect && hasValues && (
           <div className="p-2 border-t bg-muted/20">
@@ -263,12 +261,12 @@ function DatePickerInput({
 }) {
   const [open, setOpen] = useState(false)
   const [month, setMonth] = useState<Date | undefined>(value || new Date())
-  const [inputValue, setInputValue] = useState(value ? format(value, "dd.MM.yyyy") : "")
+  const [inputValue, setInputValue] = useState(value && isValid(value) ? format(value, "yyyyMMdd") : "")
 
   // Value değiştiğinde input'u güncelle
   useEffect(() => {
-    if (value) {
-      setInputValue(format(value, "dd.MM.yyyy"))
+    if (value && isValid(value)) {
+      setInputValue(format(value, "yyyyMMdd"))
       setMonth(value)
     } else {
       setInputValue("")
@@ -278,10 +276,10 @@ function DatePickerInput({
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value
     setInputValue(newValue)
-    
-    // dd.MM.yyyy formatında tarih parse et
-    const parsedDate = parse(newValue, "dd.MM.yyyy", new Date())
-    if (isValid(parsedDate) && newValue.length === 10) {
+
+    // yyyyMMdd formatında tarih parse et
+    const parsedDate = parse(newValue, "yyyyMMdd", new Date())
+    if (isValid(parsedDate) && newValue.length === 8) {
       onChange(parsedDate)
       setMonth(parsedDate)
     }
@@ -290,7 +288,7 @@ function DatePickerInput({
   const handleCalendarSelect = (date: Date | undefined) => {
     onChange(date)
     if (date) {
-      setInputValue(format(date, "dd.MM.yyyy"))
+      setInputValue(format(date, "yyyyMMdd"))
     }
     setOpen(false)
   }
@@ -329,9 +327,9 @@ function DatePickerInput({
         >
           <Calendar
             mode="single"
-            selected={value}
+            selected={value && isValid(value) ? value : undefined}
             onSelect={handleCalendarSelect}
-            month={month}
+            month={month && isValid(month) ? month : new Date()}
             onMonthChange={setMonth}
             captionLayout="dropdown"
             locale={tr}
@@ -364,19 +362,19 @@ function MultiSelectBadges({
       const badges = measureContainer.children
       const gap = 4
       const overflowBadgeWidth = 32 // "+X" badge için yaklaşık genişlik
-      
+
       let totalWidth = 0
       let count = 0
-      
+
       for (let i = 0; i < badges.length; i++) {
         const badge = badges[i] as HTMLElement
         const badgeWidth = badge.offsetWidth
         const remainingBadges = selectedValues.length - (i + 1)
-        
+
         // Eğer daha fazla badge varsa, overflow badge için yer ayır
         const needsOverflowSpace = remainingBadges > 0
         const spaceNeeded = totalWidth + badgeWidth + (needsOverflowSpace ? overflowBadgeWidth + gap : 0)
-        
+
         if (spaceNeeded <= containerWidth) {
           totalWidth += badgeWidth + gap
           count++
@@ -384,7 +382,7 @@ function MultiSelectBadges({
           break
         }
       }
-      
+
       setVisibleCount(Math.max(1, count))
     }
 
@@ -410,19 +408,19 @@ function MultiSelectBadges({
       {/* Ölçüm için gizli container */}
       <div ref={measureRef} className="absolute invisible flex items-center gap-1" aria-hidden="true">
         {selectedValues.map((val) => (
-          <span 
-            key={val} 
+          <span
+            key={val}
             className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/10 text-primary text-xs font-medium whitespace-nowrap"
           >
             {getLabel(val)}
           </span>
         ))}
       </div>
-      
+
       {/* Görünen badge'ler */}
       {selectedValues.slice(0, visibleCount).map((val) => (
-        <span 
-          key={val} 
+        <span
+          key={val}
           className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/10 text-primary text-xs font-medium whitespace-nowrap"
         >
           {getLabel(val)}
@@ -455,7 +453,7 @@ export function VariablesPanel({
   query,
 }: VariablesPanelProps) {
   const [valuesModalOpen, setValuesModalOpen] = useState(false)
-  const [tempCustomValues, setTempCustomValues] = useState<Array<{key: string, value: string}>>([])
+  const [tempCustomValues, setTempCustomValues] = useState<Array<{ key: string, value: string }>>([])
   const [valuesInputMode, setValuesInputMode] = useState<"table" | "json">("table")
   const [tempJsonInput, setTempJsonInput] = useState("")
   const [jsonError, setJsonError] = useState<string | null>(null)
@@ -463,7 +461,7 @@ export function VariablesPanel({
 
   // SQL'de kullanılan değişkenleri bul
   const getUsedVariablesInQuery = useCallback(() => {
-    const templatePattern = /\{\{(\w+)\}\}/g
+    const templatePattern = /\{\{(\w+)(?::(BEGIN|END))?\}\}/g
     const usedVars: string[] = []
     let match
     while ((match = templatePattern.exec(query)) !== null) {
@@ -487,7 +485,7 @@ export function VariablesPanel({
       multiSelect: false,
       defaultValue: "",
       value: "",
-      required: false,
+      required: true,
       valuesSource: "custom",
       customValues: "",
     }
@@ -496,7 +494,7 @@ export function VariablesPanel({
   }
 
   // String formatından array formatına dönüştür
-  const parseCustomValuesToArray = (str: string): Array<{key: string, value: string}> => {
+  const parseCustomValuesToArray = (str: string): Array<{ key: string, value: string }> => {
     if (!str) return [{ key: "", value: "" }]
     const lines = str.split('\n').filter(v => v.trim())
     if (lines.length === 0) return [{ key: "", value: "" }]
@@ -507,7 +505,7 @@ export function VariablesPanel({
   }
 
   // Array formatından string formatına dönüştür
-  const stringifyCustomValuesFromArray = (arr: Array<{key: string, value: string}>): string => {
+  const stringifyCustomValuesFromArray = (arr: Array<{ key: string, value: string }>): string => {
     return arr
       .filter(item => item.key.trim())
       .map(item => item.value.trim() ? `${item.key}, ${item.value}` : item.key)
@@ -515,7 +513,7 @@ export function VariablesPanel({
   }
 
   // Array'den JSON string'e dönüştür
-  const arrayToJson = (arr: Array<{key: string, value: string}>): string => {
+  const arrayToJson = (arr: Array<{ key: string, value: string }>): string => {
     const filtered = arr.filter(item => item.key.trim())
     if (filtered.length === 0) return "[]"
     return JSON.stringify(
@@ -526,7 +524,7 @@ export function VariablesPanel({
   }
 
   // JSON string'den array'e dönüştür
-  const jsonToArray = (json: string): Array<{key: string, value: string}> | null => {
+  const jsonToArray = (json: string): Array<{ key: string, value: string }> | null => {
     try {
       const parsed = JSON.parse(json)
       if (!Array.isArray(parsed)) return null
@@ -605,7 +603,7 @@ export function VariablesPanel({
   }
 
   const handleUpdateCustomValueRow = (index: number, field: "key" | "value", newValue: string) => {
-    setTempCustomValues(tempCustomValues.map((item, i) => 
+    setTempCustomValues(tempCustomValues.map((item, i) =>
       i === index ? { ...item, [field]: newValue } : item
     ))
   }
@@ -627,15 +625,15 @@ export function VariablesPanel({
   const handleMoveVariable = (id: string, direction: "up" | "down") => {
     const index = variables.findIndex(v => v.id === id)
     if (index === -1) return
-    
+
     const newIndex = direction === "up" ? index - 1 : index + 1
     if (newIndex < 0 || newIndex >= variables.length) return
-    
+
     const newVariables = [...variables]
     const [removed] = newVariables.splice(index, 1)
     newVariables.splice(newIndex, 0, removed)
     onVariablesChange(newVariables)
-    
+
     // Seçili değişkeni yeni array'den güncelle
     if (selectedVariable?.id === id) {
       const updatedVariable = newVariables.find(v => v.id === id)
@@ -701,374 +699,371 @@ export function VariablesPanel({
             {variables
               .filter((v) => usedVariablesInQuery.includes(v.name))
               .map((variable) => {
-              // Açık/Kapalı ve Aralık filtre yöntemi için özel ikon ve renk
-              const isSwitch = variable.filterType === "switch"
-              const isBetween = variable.filterType === "between"
-              const typeConfig = variableTypeConfig[variable.type]
-              const TypeIcon = isSwitch ? ToggleLeft : isBetween ? ArrowLeftRight : typeConfig.icon
-              const iconColor = isSwitch ? "text-rose-500" : isBetween ? "text-cyan-500" : typeConfig.color
-              
-              // Değer girişi için uygun input'u render et
-              const renderValueInput = () => {
-                // Açılır liste (dropdown) için ComboBox
-                if (variable.filterType === "dropdown") {
-                  const options = variable.customValues
-                    ? variable.customValues.split('\n').filter(v => v.trim()).map(v => {
+                // Açık/Kapalı ve Aralık filtre yöntemi için özel ikon ve renk
+                const isSwitch = variable.filterType === "switch"
+                const isBetween = variable.filterType === "between"
+                const typeConfig = variableTypeConfig[variable.type]
+                const TypeIcon = isSwitch ? ToggleLeft : isBetween ? ArrowLeftRight : typeConfig.icon
+                const iconColor = isSwitch ? "text-rose-500" : isBetween ? "text-cyan-500" : typeConfig.color
+
+                // Değer girişi için uygun input'u render et
+                const renderValueInput = () => {
+                  // Açılır liste (dropdown) için ComboBox
+                  if (variable.filterType === "dropdown") {
+                    const options = variable.customValues
+                      ? variable.customValues.split('\n').filter(v => v.trim()).map(v => {
                         const parts = v.split(',').map(s => s.trim())
                         return { value: parts[0], label: parts[1] || parts[0] }
                       })
-                    : []
-                  
-                  // Değerden label'a dönüşüm helper'ı
-                  const getLabel = (val: string) => options.find(o => o.value === val)?.label || val
-                  
-                  // Çoklu seçim için mevcut değerleri parse et (value alanını kullan, yoksa defaultValue)
-                  const activeValue = variable.value || variable.defaultValue
-                  const selectedValues = variable.multiSelect 
-                    ? parseDefaultValues(activeValue)
-                    : [activeValue].filter(Boolean)
-                  
-                  const handleToggleValue = (val: string) => {
-                    if (variable.multiSelect) {
-                      const currentValues = parseDefaultValues(activeValue)
-                      const newValues = currentValues.includes(val)
-                        ? currentValues.filter(v => v !== val)
-                        : [...currentValues, val]
-                      handleUpdateVariable(variable.id, { 
-                        value: newValues.length > 0 ? JSON.stringify(newValues) : "" 
-                      })
-                    } else {
-                      handleUpdateVariable(variable.id, { value: val })
+                      : []
+
+                    // Değerden label'a dönüşüm helper'ı
+                    const getLabel = (val: string) => options.find(o => o.value === val)?.label || val
+
+                    // Çoklu seçim için mevcut değerleri parse et (value alanını kullan, yoksa defaultValue)
+                    const activeValue = variable.value || variable.defaultValue
+                    const selectedValues = variable.multiSelect
+                      ? parseDefaultValues(activeValue)
+                      : [activeValue].filter(Boolean)
+
+                    const handleToggleValue = (val: string) => {
+                      if (variable.multiSelect) {
+                        const currentValues = parseDefaultValues(activeValue)
+                        const newValues = currentValues.includes(val)
+                          ? currentValues.filter(v => v !== val)
+                          : [...currentValues, val]
+                        handleUpdateVariable(variable.id, {
+                          value: newValues.length > 0 ? JSON.stringify(newValues) : ""
+                        })
+                      } else {
+                        handleUpdateVariable(variable.id, { value: val })
+                      }
                     }
-                  }
-                  
-                  const handleSelectAll = () => {
-                    const allValues = options.map(o => o.value)
-                    handleUpdateVariable(variable.id, { 
-                      value: JSON.stringify(allValues) 
-                    })
-                  }
-                  
-                  const handleClearAll = () => {
-                    handleUpdateVariable(variable.id, { value: "" })
-                  }
-                  
-                  // Çoklu seçim görünümü
-                  if (variable.multiSelect) {
-                    return (
-                      <div className="space-y-2">
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <button
-                              className="flex items-center justify-between w-full min-h-9 px-3 py-2 rounded-md border bg-background text-sm hover:bg-muted/50 transition-colors"
-                            >
-                              <MultiSelectBadges
-                                selectedValues={selectedValues}
-                                getLabel={getLabel}
-                              />
-                              <div className="flex items-center gap-1 ml-2 shrink-0">
-                                {selectedValues.length > 0 && (
-                                  <span 
-                                    role="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleClearAll()
-                                    }}
-                                    className="h-4 w-4 rounded-sm hover:bg-muted flex items-center justify-center"
-                                  >
-                                    <X className="h-3 w-3 text-muted-foreground" />
-                                  </span>
-                                )}
-                                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                              </div>
-                            </button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[200px] p-0" align="start">
-                            <Command>
-                              <CommandInput placeholder="Ara..." className="h-9" />
-                              <CommandList>
-                                <CommandEmpty>Sonuç bulunamadı.</CommandEmpty>
-                                <CommandGroup>
-                                  <CommandItem 
-                                    onSelect={selectedValues.length === options.length ? handleClearAll : handleSelectAll}
-                                    className="flex items-center justify-between"
-                                  >
-                                    <div className="flex items-center gap-2">
-                                      <div className={`h-4 w-4 rounded border-2 flex items-center justify-center transition-colors ${
-                                        selectedValues.length === options.length 
-                                          ? 'bg-primary border-primary' 
-                                          : selectedValues.length > 0 
-                                            ? 'bg-primary/50 border-primary/50' 
-                                            : 'border-muted-foreground/30'
-                                      }`}>
-                                        {selectedValues.length > 0 && (
-                                          <div className="h-1.5 w-1.5 bg-primary-foreground rounded-sm" />
-                                        )}
-                                      </div>
-                                      <span className="font-medium">
-                                        {selectedValues.length === options.length ? "Tümünü kaldır" : "Tümünü seç"}
-                                      </span>
-                                    </div>
-                                    <span className="text-[10px] text-muted-foreground">
-                                      {selectedValues.length}/{options.length}
+
+                    const handleSelectAll = () => {
+                      const allValues = options.map(o => o.value)
+                      handleUpdateVariable(variable.id, {
+                        value: JSON.stringify(allValues)
+                      })
+                    }
+
+                    const handleClearAll = () => {
+                      handleUpdateVariable(variable.id, { value: "" })
+                    }
+
+                    // Çoklu seçim görünümü
+                    if (variable.multiSelect) {
+                      return (
+                        <div className="space-y-2">
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button
+                                className="flex items-center justify-between w-full min-h-9 px-3 py-2 rounded-md border bg-background text-sm hover:bg-muted/50 transition-colors"
+                              >
+                                <MultiSelectBadges
+                                  selectedValues={selectedValues}
+                                  getLabel={getLabel}
+                                />
+                                <div className="flex items-center gap-1 ml-2 shrink-0">
+                                  {selectedValues.length > 0 && (
+                                    <span
+                                      role="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleClearAll()
+                                      }}
+                                      className="h-4 w-4 rounded-sm hover:bg-muted flex items-center justify-center"
+                                    >
+                                      <X className="h-3 w-3 text-muted-foreground" />
                                     </span>
-                                  </CommandItem>
-                                </CommandGroup>
-                                <CommandGroup>
-                                  {options.map((option) => {
-                                    const isSelected = selectedValues.includes(option.value)
-                                    return (
-                                      <CommandItem
-                                        key={option.value}
-                                        onSelect={() => handleToggleValue(option.value)}
-                                        className="flex items-center justify-between"
-                                      >
-                                        <span>{option.label}</span>
-                                        <Check className={`h-4 w-4 text-primary transition-opacity ${
-                                          isSelected ? 'opacity-100' : 'opacity-0'
+                                  )}
+                                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                </div>
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[200px] p-0" align="start">
+                              <Command>
+                                <CommandInput placeholder="Ara..." className="h-9" />
+                                <CommandList>
+                                  <CommandEmpty>Sonuç bulunamadı.</CommandEmpty>
+                                  <CommandGroup>
+                                    <CommandItem
+                                      onSelect={selectedValues.length === options.length ? handleClearAll : handleSelectAll}
+                                      className="flex items-center justify-between"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <div className={`h-4 w-4 rounded border-2 flex items-center justify-center transition-colors ${selectedValues.length === options.length
+                                          ? 'bg-primary border-primary'
+                                          : selectedValues.length > 0
+                                            ? 'bg-primary/50 border-primary/50'
+                                            : 'border-muted-foreground/30'
+                                          }`}>
+                                          {selectedValues.length > 0 && (
+                                            <div className="h-1.5 w-1.5 bg-primary-foreground rounded-sm" />
+                                          )}
+                                        </div>
+                                        <span className="font-medium">
+                                          {selectedValues.length === options.length ? "Tümünü kaldır" : "Tümünü seç"}
+                                        </span>
+                                      </div>
+                                      <span className="text-[10px] text-muted-foreground">
+                                        {selectedValues.length}/{options.length}
+                                      </span>
+                                    </CommandItem>
+                                  </CommandGroup>
+                                  <CommandGroup>
+                                    {options.map((option) => {
+                                      const isSelected = selectedValues.includes(option.value)
+                                      return (
+                                        <CommandItem
+                                          key={option.value}
+                                          onSelect={() => handleToggleValue(option.value)}
+                                          className="flex items-center justify-between"
+                                        >
+                                          <span>{option.label}</span>
+                                          <Check className={`h-4 w-4 text-primary transition-opacity ${isSelected ? 'opacity-100' : 'opacity-0'
+                                            }`} />
+                                        </CommandItem>
+                                      )
+                                    })}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                      )
+                    }
+
+                    // Tek seçim görünümü
+                    return (
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button
+                            className="flex items-center justify-between w-full h-9 px-3 rounded-md border bg-background text-sm hover:bg-muted/50 transition-colors"
+                          >
+                            <span className={selectedValues.length > 0 ? "text-foreground" : "text-muted-foreground"}>
+                              {selectedValues[0] ? getLabel(selectedValues[0]) : "Seçin..."}
+                            </span>
+                            <div className="flex items-center gap-1 ml-2 shrink-0">
+                              {selectedValues.length > 0 && (
+                                <span
+                                  role="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleUpdateVariable(variable.id, { value: "" })
+                                  }}
+                                  className="h-4 w-4 rounded-sm hover:bg-muted flex items-center justify-center"
+                                >
+                                  <X className="h-3 w-3 text-muted-foreground" />
+                                </span>
+                              )}
+                              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[200px] p-0" align="start">
+                          <Command>
+                            <CommandInput placeholder="Ara..." className="h-9" />
+                            <CommandList>
+                              <CommandEmpty>Sonuç bulunamadı.</CommandEmpty>
+                              <CommandGroup>
+                                {options.map((option) => {
+                                  const isSelected = selectedValues.includes(option.value)
+                                  return (
+                                    <CommandItem
+                                      key={option.value}
+                                      onSelect={() => handleToggleValue(option.value)}
+                                      className="flex items-center justify-between"
+                                    >
+                                      <span>{option.label}</span>
+                                      <Check className={`h-4 w-4 text-primary transition-opacity ${isSelected ? 'opacity-100' : 'opacity-0'
                                         }`} />
-                                      </CommandItem>
-                                    )
-                                  })}
-                                </CommandGroup>
-                              </CommandList>
-                            </Command>
-                          </PopoverContent>
-                        </Popover>
-                      </div>
+                                    </CommandItem>
+                                  )
+                                })}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
                     )
                   }
-                  
-                  // Tek seçim görünümü
-                  return (
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button
-                          className="flex items-center justify-between w-full h-9 px-3 rounded-md border bg-background text-sm hover:bg-muted/50 transition-colors"
-                        >
-                          <span className={selectedValues.length > 0 ? "text-foreground" : "text-muted-foreground"}>
-                            {selectedValues[0] ? getLabel(selectedValues[0]) : "Seçin..."}
-                          </span>
-                          <div className="flex items-center gap-1 ml-2 shrink-0">
-                            {selectedValues.length > 0 && (
-                              <span 
-                                role="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleUpdateVariable(variable.id, { value: "" })
-                                }}
-                                className="h-4 w-4 rounded-sm hover:bg-muted flex items-center justify-center"
-                              >
-                                <X className="h-3 w-3 text-muted-foreground" />
-                              </span>
-                            )}
-                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                          </div>
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[200px] p-0" align="start">
-                        <Command>
-                          <CommandInput placeholder="Ara..." className="h-9" />
-                          <CommandList>
-                            <CommandEmpty>Sonuç bulunamadı.</CommandEmpty>
-                            <CommandGroup>
-                              {options.map((option) => {
-                                const isSelected = selectedValues.includes(option.value)
-                                return (
-                                  <CommandItem
-                                    key={option.value}
-                                    onSelect={() => handleToggleValue(option.value)}
-                                    className="flex items-center justify-between"
-                                  >
-                                    <span>{option.label}</span>
-                                    <Check className={`h-4 w-4 text-primary transition-opacity ${
-                                      isSelected ? 'opacity-100' : 'opacity-0'
-                                    }`} />
-                                  </CommandItem>
-                                )
-                              })}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                  )
-                }
-                
-                // Between filtre yöntemi için iki input
-                if (variable.filterType === "between") {
-                  const activeStart = variable.value ? (JSON.parse(variable.value)?.start || "") : (variable.betweenStart || "")
-                  const activeEnd = variable.value ? (JSON.parse(variable.value)?.end || "") : (variable.betweenEnd || "")
-                  
-                  const handleBetweenChange = (field: "start" | "end", val: string) => {
-                    const current = variable.value ? JSON.parse(variable.value) : { start: variable.betweenStart || "", end: variable.betweenEnd || "" }
-                    current[field] = val
-                    handleUpdateVariable(variable.id, { value: JSON.stringify(current) })
-                  }
-                  
-                  // Tarih tipi için DatePicker kullan
-                  if (variable.type === "date") {
-                    const startDateValue = activeStart ? parse(activeStart, "yyyy-MM-dd", new Date()) : undefined
-                    const endDateValue = activeEnd ? parse(activeEnd, "yyyy-MM-dd", new Date()) : undefined
-                    const isValidStartDate = startDateValue && isValid(startDateValue)
-                    const isValidEndDate = endDateValue && isValid(endDateValue)
-                    
+
+                  // Between filtre yöntemi için iki input
+                  if (variable.filterType === "between") {
+                    const activeStart = variable.value ? (JSON.parse(variable.value)?.start || "") : (variable.betweenStart || "")
+                    const activeEnd = variable.value ? (JSON.parse(variable.value)?.end || "") : (variable.betweenEnd || "")
+
+                    const handleBetweenChange = (field: "start" | "end", val: string) => {
+                      const current = variable.value ? JSON.parse(variable.value) : { start: variable.betweenStart || "", end: variable.betweenEnd || "" }
+                      current[field] = val
+                      handleUpdateVariable(variable.id, { value: JSON.stringify(current) })
+                    }
+
+                    // Tarih tipi için DatePicker kullan
+                    if (variable.type === "date") {
+                      const startDateValue = activeStart ? parse(activeStart, "yyyyMMdd", new Date()) : undefined
+                      const endDateValue = activeEnd ? parse(activeEnd, "yyyyMMdd", new Date()) : undefined
+                      const isValidStartDate = startDateValue && isValid(startDateValue)
+                      const isValidEndDate = endDateValue && isValid(endDateValue)
+
+                      return (
+                        <div className="flex items-center gap-2">
+                          <DatePickerInput
+                            value={isValidStartDate ? startDateValue : undefined}
+                            onChange={(date) => handleBetweenChange("start", date ? format(date, "yyyyMMdd") : "")}
+                            placeholder="Başlangıç"
+                            className="flex-1"
+                          />
+                          <ArrowLeftRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <DatePickerInput
+                            value={isValidEndDate ? endDateValue : undefined}
+                            onChange={(date) => handleBetweenChange("end", date ? format(date, "yyyyMMdd") : "")}
+                            placeholder="Bitiş"
+                            className="flex-1"
+                          />
+                        </div>
+                      )
+                    }
+
+                    const inputType = variable.type === "number" ? "number" : "text"
+
                     return (
                       <div className="flex items-center gap-2">
-                        <DatePickerInput
-                          value={isValidStartDate ? startDateValue : undefined}
-                          onChange={(date) => handleBetweenChange("start", date ? format(date, "yyyy-MM-dd") : "")}
+                        <Input
+                          type={inputType}
+                          value={activeStart}
+                          onChange={(e) => handleBetweenChange("start", e.target.value)}
                           placeholder="Başlangıç"
-                          className="flex-1"
+                          className="h-9 text-sm flex-1"
                         />
                         <ArrowLeftRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <DatePickerInput
-                          value={isValidEndDate ? endDateValue : undefined}
-                          onChange={(date) => handleBetweenChange("end", date ? format(date, "yyyy-MM-dd") : "")}
+                        <Input
+                          type={inputType}
+                          value={activeEnd}
+                          onChange={(e) => handleBetweenChange("end", e.target.value)}
                           placeholder="Bitiş"
-                          className="flex-1"
+                          className="h-9 text-sm flex-1"
                         />
                       </div>
                     )
                   }
-                  
-                  const inputType = variable.type === "number" ? "number" : "text"
-                  
-                  return (
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type={inputType}
-                        value={activeStart}
-                        onChange={(e) => handleBetweenChange("start", e.target.value)}
-                        placeholder="Başlangıç"
-                        className="h-9 text-sm flex-1"
+
+                  // Aktif değeri al (value yoksa defaultValue)
+                  const activeInputValue = variable.value !== undefined && variable.value !== ""
+                    ? variable.value
+                    : variable.defaultValue
+
+                  // Tarih tipi için DatePicker with Input
+                  if (variable.type === "date") {
+                    const dateValue = activeInputValue ? parse(activeInputValue, "yyyyMMdd", new Date()) : undefined
+                    const isValidDateValue = dateValue && isValid(dateValue)
+
+                    return (
+                      <DatePickerInput
+                        value={isValidDateValue ? dateValue : undefined}
+                        onChange={(date) => {
+                          handleUpdateVariable(variable.id, {
+                            value: date ? format(date, "yyyyMMdd") : ""
+                          })
+                        }}
+                        placeholder="Tarih seçin..."
                       />
-                      <ArrowLeftRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                    )
+                  }
+
+                  // Sayı tipi için number input
+                  if (variable.type === "number") {
+                    return (
                       <Input
-                        type={inputType}
-                        value={activeEnd}
-                        onChange={(e) => handleBetweenChange("end", e.target.value)}
-                        placeholder="Bitiş"
-                        className="h-9 text-sm flex-1"
+                        type="number"
+                        value={activeInputValue}
+                        onChange={(e) => handleUpdateVariable(variable.id, { value: e.target.value })}
+                        placeholder="Sayı girin..."
+                        className="h-9 text-sm"
+                      />
+                    )
+                  }
+
+                  // Varsayılan: text input with optional regex validation
+                  const hasRegex = variable.regexPattern && variable.regexPattern.trim() !== ""
+                  let isRegexValid = true
+                  if (hasRegex && activeInputValue) {
+                    try {
+                      const regex = new RegExp(variable.regexPattern!)
+                      isRegexValid = regex.test(activeInputValue)
+                    } catch {
+                      isRegexValid = true // Invalid regex pattern, ignore validation
+                    }
+                  }
+
+                  return (
+                    <div className="space-y-1">
+                      <Input
+                        type="text"
+                        value={activeInputValue}
+                        onChange={(e) => handleUpdateVariable(variable.id, { value: e.target.value })}
+                        placeholder="Değer girin..."
+                        className={`h-9 text-sm ${hasRegex && activeInputValue && !isRegexValid ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                      />
+                      {hasRegex && activeInputValue && !isRegexValid && (
+                        <p className="text-[10px] text-destructive">
+                          {variable.regexErrorMessage || "Geçersiz format"}
+                        </p>
+                      )}
+                    </div>
+                  )
+                }
+
+                // Switch filtre yöntemi için özel layout (label ve switch aynı satırda)
+                if (variable.filterType === "switch") {
+                  // Aktif değeri al (value yoksa defaultValue)
+                  const activeSwitchValue = variable.value !== undefined && variable.value !== ""
+                    ? variable.value
+                    : variable.defaultValue
+                  // Switch değerleri boşsa, toggle durumunu kontrol edemeyiz
+                  const isOn = variable.switchTrueValue
+                    ? activeSwitchValue === variable.switchTrueValue
+                    : false
+                  return (
+                    <div key={variable.id} className="flex items-center justify-between py-1">
+                      <div className="flex items-center gap-2">
+                        <TypeIcon className={`h-3.5 w-3.5 ${iconColor}`} />
+                        <Label className="text-sm font-medium">{variable.label}</Label>
+                      </div>
+                      <Switch
+                        checked={isOn}
+                        onCheckedChange={(checked) => {
+                          // Sadece tanımlı değerler varsa kullan, yoksa boş string
+                          const val = checked
+                            ? (variable.switchTrueValue || "")
+                            : (variable.switchFalseValue || "")
+                          handleUpdateVariable(variable.id, { value: val })
+                        }}
                       />
                     </div>
                   )
                 }
-                
-                // Aktif değeri al (value yoksa defaultValue)
-                const activeInputValue = variable.value !== undefined && variable.value !== "" 
-                  ? variable.value 
-                  : variable.defaultValue
-                
-                // Tarih tipi için DatePicker with Input
-                if (variable.type === "date") {
-                  const dateValue = activeInputValue ? parse(activeInputValue, "yyyy-MM-dd", new Date()) : undefined
-                  const isValidDateValue = dateValue && isValid(dateValue)
-                  
-                  return (
-                    <DatePickerInput
-                      value={isValidDateValue ? dateValue : undefined}
-                      onChange={(date) => {
-                        handleUpdateVariable(variable.id, { 
-                          value: date ? format(date, "yyyy-MM-dd") : "" 
-                        })
-                      }}
-                      placeholder="Tarih seçin..."
-                    />
-                  )
-                }
-                
-                // Sayı tipi için number input
-                if (variable.type === "number") {
-                  return (
-                    <Input
-                      type="number"
-                      value={activeInputValue}
-                      onChange={(e) => handleUpdateVariable(variable.id, { value: e.target.value })}
-                      placeholder="Sayı girin..."
-                      className="h-9 text-sm"
-                    />
-                  )
-                }
-                
-                // Varsayılan: text input with optional regex validation
-                const hasRegex = variable.regexPattern && variable.regexPattern.trim() !== ""
-                let isRegexValid = true
-                if (hasRegex && activeInputValue) {
-                  try {
-                    const regex = new RegExp(variable.regexPattern!)
-                    isRegexValid = regex.test(activeInputValue)
-                  } catch {
-                    isRegexValid = true // Invalid regex pattern, ignore validation
-                  }
-                }
-                
+
                 return (
-                  <div className="space-y-1">
-                    <Input
-                      type="text"
-                      value={activeInputValue}
-                      onChange={(e) => handleUpdateVariable(variable.id, { value: e.target.value })}
-                      placeholder="Değer girin..."
-                      className={`h-9 text-sm ${hasRegex && activeInputValue && !isRegexValid ? 'border-destructive focus-visible:ring-destructive' : ''}`}
-                    />
-                    {hasRegex && activeInputValue && !isRegexValid && (
-                      <p className="text-[10px] text-destructive">
-                        {variable.regexErrorMessage || "Geçersiz format"}
-                      </p>
-                    )}
-                  </div>
-                )
-              }
-              
-              // Switch filtre yöntemi için özel layout (label ve switch aynı satırda)
-              if (variable.filterType === "switch") {
-                // Aktif değeri al (value yoksa defaultValue)
-                const activeSwitchValue = variable.value !== undefined && variable.value !== "" 
-                  ? variable.value 
-                  : variable.defaultValue
-                // Switch değerleri boşsa, toggle durumunu kontrol edemeyiz
-                const isOn = variable.switchTrueValue 
-                  ? activeSwitchValue === variable.switchTrueValue
-                  : false
-                return (
-                  <div key={variable.id} className="flex items-center justify-between py-1">
+                  <div key={variable.id} className="space-y-1.5">
                     <div className="flex items-center gap-2">
                       <TypeIcon className={`h-3.5 w-3.5 ${iconColor}`} />
                       <Label className="text-sm font-medium">{variable.label}</Label>
+                      {variable.required && (
+                        <span className="text-[10px] text-destructive">*</span>
+                      )}
+                      {variable.regexPattern && (
+                        <span className="text-[9px] text-muted-foreground font-mono bg-muted px-1 py-0.5 rounded">
+                          regex
+                        </span>
+                      )}
                     </div>
-                    <Switch
-                      checked={isOn}
-                      onCheckedChange={(checked) => {
-                        // Sadece tanımlı değerler varsa kullan, yoksa boş string
-                        const val = checked 
-                          ? (variable.switchTrueValue || "") 
-                          : (variable.switchFalseValue || "")
-                        handleUpdateVariable(variable.id, { value: val })
-                      }}
-                    />
+                    {renderValueInput()}
                   </div>
                 )
-              }
-              
-              return (
-                <div key={variable.id} className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <TypeIcon className={`h-3.5 w-3.5 ${iconColor}`} />
-                    <Label className="text-sm font-medium">{variable.label}</Label>
-                    {variable.required && (
-                      <span className="text-[10px] text-destructive">*</span>
-                    )}
-                    {variable.regexPattern && (
-                      <span className="text-[9px] text-muted-foreground font-mono bg-muted px-1 py-0.5 rounded">
-                        regex
-                      </span>
-                    )}
-                  </div>
-                  {renderValueInput()}
-                </div>
-              )
-            })}
+              })}
           </div>
         ) : (
           /* Edit Mode - Düzenleme Modu */
@@ -1087,8 +1082,8 @@ export function VariablesPanel({
                   onClick={() => onSelectVariable(variable)}
                   className={`
                     flex items-center gap-2.5 py-1.5 px-2.5 rounded-md cursor-pointer group transition-colors
-                    ${selectedVariable?.id === variable.id 
-                      ? 'bg-muted ring-1 ring-border' 
+                    ${selectedVariable?.id === variable.id
+                      ? 'bg-muted ring-1 ring-border'
                       : 'hover:bg-muted/50'
                     }
                     ${!isUsedInQuery ? 'opacity-60' : ''}
@@ -1182,8 +1177,8 @@ export function VariablesPanel({
                           onClick={() => {
                             // Tip değiştiğinde değerleri sıfırla
                             if (selectedVariable.type !== type) {
-                              handleUpdateVariable(selectedVariable.id, { 
-                                type, 
+                              handleUpdateVariable(selectedVariable.id, {
+                                type,
                                 defaultValue: "",
                                 switchTrueValue: "",
                                 switchFalseValue: "",
@@ -1192,8 +1187,8 @@ export function VariablesPanel({
                           }}
                           className={`
                             flex items-center gap-2 p-2.5 rounded-md border transition-all text-left
-                            ${isSelected 
-                              ? 'border-foreground/20 bg-muted' 
+                            ${isSelected
+                              ? 'border-foreground/20 bg-muted'
                               : 'border-transparent hover:bg-muted/50'
                             }
                           `}
@@ -1231,8 +1226,8 @@ export function VariablesPanel({
                         onClick={() => handleUpdateVariable(selectedVariable.id, { filterType })}
                         className={`
                           flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all
-                          ${isSelected 
-                            ? 'border-foreground/20 bg-muted' 
+                          ${isSelected
+                            ? 'border-foreground/20 bg-muted'
                             : 'border-transparent hover:bg-muted/50'
                           }
                         `}
@@ -1277,15 +1272,15 @@ export function VariablesPanel({
                       <Switch
                         checked={selectedVariable.switchTrueValue ? selectedVariable.defaultValue === selectedVariable.switchTrueValue : false}
                         onCheckedChange={(checked) => {
-                          const value = checked 
-                            ? (selectedVariable.switchTrueValue || "") 
+                          const value = checked
+                            ? (selectedVariable.switchTrueValue || "")
                             : (selectedVariable.switchFalseValue || "")
                           handleUpdateVariable(selectedVariable.id, { defaultValue: value })
                         }}
                       />
                     </div>
                   </div>
-                  
+
                   <div className="space-y-2">
                     <Label className="text-xs uppercase tracking-wider text-muted-foreground">SQL Değerleri</Label>
                     <div className="space-y-2">
@@ -1331,8 +1326,15 @@ export function VariablesPanel({
                         </div>
                         {selectedVariable.type === "date" ? (
                           <DatePickerInput
-                            value={selectedVariable.betweenStart ? parse(selectedVariable.betweenStart, "yyyy-MM-dd", new Date()) : undefined}
-                            onChange={(date) => handleUpdateVariable(selectedVariable.id, { betweenStart: date ? format(date, "yyyy-MM-dd") : "" })}
+                            value={selectedVariable.betweenStart ? parse(selectedVariable.betweenStart, "yyyyMMdd", new Date()) : undefined}
+                            onChange={(date) => {
+                              const val = date ? format(date, "yyyyMMdd") : ""
+                              const currentEnd = selectedVariable.betweenEnd || ""
+                              handleUpdateVariable(selectedVariable.id, {
+                                betweenStart: val,
+                                defaultValue: JSON.stringify({ start: val, end: currentEnd })
+                              })
+                            }}
                             placeholder="Başlangıç"
                             size="sm"
                             className="flex-1"
@@ -1341,7 +1343,14 @@ export function VariablesPanel({
                           <Input
                             type={selectedVariable.type === "number" ? "number" : "text"}
                             value={selectedVariable.betweenStart || ""}
-                            onChange={(e) => handleUpdateVariable(selectedVariable.id, { betweenStart: e.target.value })}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              const currentEnd = selectedVariable.betweenEnd || ""
+                              handleUpdateVariable(selectedVariable.id, {
+                                betweenStart: val,
+                                defaultValue: JSON.stringify({ start: val, end: currentEnd })
+                              })
+                            }}
                             placeholder="Başlangıç değeri"
                             className="h-8 text-sm"
                           />
@@ -1353,8 +1362,15 @@ export function VariablesPanel({
                         </div>
                         {selectedVariable.type === "date" ? (
                           <DatePickerInput
-                            value={selectedVariable.betweenEnd ? parse(selectedVariable.betweenEnd, "yyyy-MM-dd", new Date()) : undefined}
-                            onChange={(date) => handleUpdateVariable(selectedVariable.id, { betweenEnd: date ? format(date, "yyyy-MM-dd") : "" })}
+                            value={selectedVariable.betweenEnd ? parse(selectedVariable.betweenEnd, "yyyyMMdd", new Date()) : undefined}
+                            onChange={(date) => {
+                              const val = date ? format(date, "yyyyMMdd") : ""
+                              const currentStart = selectedVariable.betweenStart || ""
+                              handleUpdateVariable(selectedVariable.id, {
+                                betweenEnd: val,
+                                defaultValue: JSON.stringify({ start: currentStart, end: val })
+                              })
+                            }}
                             placeholder="Bitiş"
                             size="sm"
                             className="flex-1"
@@ -1363,7 +1379,14 @@ export function VariablesPanel({
                           <Input
                             type={selectedVariable.type === "number" ? "number" : "text"}
                             value={selectedVariable.betweenEnd || ""}
-                            onChange={(e) => handleUpdateVariable(selectedVariable.id, { betweenEnd: e.target.value })}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              const currentStart = selectedVariable.betweenStart || ""
+                              handleUpdateVariable(selectedVariable.id, {
+                                betweenEnd: val,
+                                defaultValue: JSON.stringify({ start: currentStart, end: val })
+                              })
+                            }}
                             placeholder="Bitiş değeri"
                             className="h-8 text-sm"
                           />
@@ -1379,71 +1402,71 @@ export function VariablesPanel({
 
               {/* Çoklu Seçim - Switch ve Between filtre yönteminde gösterme */}
               {selectedVariable.filterType !== "switch" && selectedVariable.filterType !== "between" && (
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Seçim Sayısı</Label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleUpdateVariable(selectedVariable.id, { multiSelect: false })}
-                    className={`
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Seçim Sayısı</Label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleUpdateVariable(selectedVariable.id, { multiSelect: false })}
+                      className={`
                       flex-1 flex items-center justify-center gap-2 p-2.5 rounded-md border transition-all
-                      ${!selectedVariable.multiSelect 
-                        ? 'border-foreground/20 bg-muted' 
-                        : 'border-transparent hover:bg-muted/50'
-                      }
+                      ${!selectedVariable.multiSelect
+                          ? 'border-foreground/20 bg-muted'
+                          : 'border-transparent hover:bg-muted/50'
+                        }
                     `}
-                  >
-                    <div className="h-3 w-3 rounded-full border-2 border-current flex items-center justify-center">
-                      {!selectedVariable.multiSelect && <div className="h-1.5 w-1.5 rounded-full bg-current" />}
-                    </div>
-                    <span className="text-xs font-medium">Tek değer</span>
-                  </button>
-                  <button
-                    onClick={() => handleUpdateVariable(selectedVariable.id, { multiSelect: true })}
-                    className={`
+                    >
+                      <div className="h-3 w-3 rounded-full border-2 border-current flex items-center justify-center">
+                        {!selectedVariable.multiSelect && <div className="h-1.5 w-1.5 rounded-full bg-current" />}
+                      </div>
+                      <span className="text-xs font-medium">Tek değer</span>
+                    </button>
+                    <button
+                      onClick={() => handleUpdateVariable(selectedVariable.id, { multiSelect: true })}
+                      className={`
                       flex-1 flex items-center justify-center gap-2 p-2.5 rounded-md border transition-all
-                      ${selectedVariable.multiSelect 
-                        ? 'border-foreground/20 bg-muted' 
-                        : 'border-transparent hover:bg-muted/50'
-                      }
+                      ${selectedVariable.multiSelect
+                          ? 'border-foreground/20 bg-muted'
+                          : 'border-transparent hover:bg-muted/50'
+                        }
                     `}
-                  >
-                    <div className="h-3 w-3 rounded border border-current flex items-center justify-center">
-                      {selectedVariable.multiSelect && <ChevronUp className="h-2 w-2" style={{ transform: 'rotate(45deg) scale(0.8)' }} />}
-                    </div>
-                    <span className="text-xs font-medium">Çoklu değer</span>
-                  </button>
+                    >
+                      <div className="h-3 w-3 rounded border border-current flex items-center justify-center">
+                        {selectedVariable.multiSelect && <ChevronUp className="h-2 w-2" style={{ transform: 'rotate(45deg) scale(0.8)' }} />}
+                      </div>
+                      <span className="text-xs font-medium">Çoklu değer</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
               )}
 
               {/* Varsayılan Değer - Switch ve Between filtre yönteminde gösterme */}
               {selectedVariable.filterType !== "switch" && selectedVariable.filterType !== "between" && (
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Varsayılan Değer</Label>
-                
-                {/* Açılır liste seçiliyse → Combobox */}
-                {selectedVariable.filterType === "dropdown" ? (
-                  <DefaultValueCombobox
-                    selectedVariable={selectedVariable}
-                    onUpdate={(updates) => handleUpdateVariable(selectedVariable.id, updates)}
-                  />
-                ) : selectedVariable.type === "date" ? (
-                  /* Tarih tipi için DatePicker */
-                  <DatePickerInput
-                    value={selectedVariable.defaultValue ? parse(selectedVariable.defaultValue, "yyyy-MM-dd", new Date()) : undefined}
-                    onChange={(date) => handleUpdateVariable(selectedVariable.id, { defaultValue: date ? format(date, "yyyy-MM-dd") : "" })}
-                    placeholder="Varsayılan tarih seçin"
-                  />
-                ) : (
-                  /* Arama kutusu veya Girdi kutusu → Text Input */
-                  <Input
-                    value={selectedVariable.defaultValue}
-                    onChange={(e) => handleUpdateVariable(selectedVariable.id, { defaultValue: e.target.value })}
-                    placeholder="Varsayılan bir değer girin"
-                    className="h-9 text-sm"
-                  />
-                )}
-              </div>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Varsayılan Değer</Label>
+
+                  {/* Açılır liste seçiliyse → Combobox */}
+                  {selectedVariable.filterType === "dropdown" ? (
+                    <DefaultValueCombobox
+                      selectedVariable={selectedVariable}
+                      onUpdate={(updates) => handleUpdateVariable(selectedVariable.id, updates)}
+                    />
+                  ) : selectedVariable.type === "date" ? (
+                    /* Tarih tipi için DatePicker */
+                    <DatePickerInput
+                      value={selectedVariable.defaultValue ? parse(selectedVariable.defaultValue, "yyyyMMdd", new Date()) : undefined}
+                      onChange={(date) => handleUpdateVariable(selectedVariable.id, { defaultValue: date ? format(date, "yyyyMMdd") : "" })}
+                      placeholder="Varsayılan tarih seçin"
+                    />
+                  ) : (
+                    /* Arama kutusu veya Girdi kutusu → Text Input */
+                    <Input
+                      value={selectedVariable.defaultValue}
+                      onChange={(e) => handleUpdateVariable(selectedVariable.id, { defaultValue: e.target.value })}
+                      placeholder="Varsayılan bir değer girin"
+                      className="h-9 text-sm"
+                    />
+                  )}
+                </div>
               )}
 
               {/* Regex Pattern - Sadece text tipi ve input filter için */}
@@ -1480,18 +1503,18 @@ export function VariablesPanel({
 
               {/* Zorunlu - Switch filtre yönteminde gösterme */}
               {selectedVariable.filterType !== "switch" && (
-              <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-transparent hover:bg-muted/50 transition-colors">
-                <div>
-                  <div className="text-sm font-medium">Her zaman bir değer gerektirir</div>
-                  <p className="text-[11px] text-muted-foreground">
-                    Etkinleştirildiğinde, insanlar değeri değiştirebilir veya sıfırlayabilir, ancak tamamen silemezler.
-                  </p>
+                <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-transparent hover:bg-muted/50 transition-colors">
+                  <div>
+                    <div className="text-sm font-medium">Her zaman bir değer gerektirir</div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Etkinleştirildiğinde, insanlar değeri değiştirebilir veya sıfırlayabilir, ancak tamamen silemezler.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={selectedVariable.required}
+                    onCheckedChange={(checked) => handleUpdateVariable(selectedVariable.id, { required: checked })}
+                  />
                 </div>
-                <Switch
-                  checked={selectedVariable.required}
-                  onCheckedChange={(checked) => handleUpdateVariable(selectedVariable.id, { required: checked })}
-                />
-              </div>
               )}
             </div>
           </div>
@@ -1507,19 +1530,19 @@ export function VariablesPanel({
               {selectedVariable?.label} için seçenekler
             </DialogTitle>
           </DialogHeader>
-          
+
           {/* Veri Kaynağı Seçimi */}
           <div className="px-5 py-4 border-b bg-muted/5">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-3">
               Veri Kaynağı
             </div>
             <div className="flex gap-2">
-              <button 
+              <button
                 onClick={() => selectedVariable && handleUpdateVariable(selectedVariable.id, { valuesSource: "model" })}
                 className={`
                   flex items-center gap-2 px-3 py-2 rounded-md border text-left transition-all text-sm
-                  ${selectedVariable?.valuesSource === "model" 
-                    ? 'border-foreground/20 bg-muted font-medium' 
+                  ${selectedVariable?.valuesSource === "model"
+                    ? 'border-foreground/20 bg-muted font-medium'
                     : 'border-transparent hover:bg-muted/50'
                   }
                 `}
@@ -1527,12 +1550,12 @@ export function VariablesPanel({
                 <Database className="h-4 w-4 text-muted-foreground" />
                 Model / Sorgu
               </button>
-              <button 
+              <button
                 onClick={() => selectedVariable && handleUpdateVariable(selectedVariable.id, { valuesSource: "custom" })}
                 className={`
                   flex items-center gap-2 px-3 py-2 rounded-md border text-left transition-all text-sm
-                  ${selectedVariable?.valuesSource === "custom" 
-                    ? 'border-foreground/20 bg-muted font-medium' 
+                  ${selectedVariable?.valuesSource === "custom"
+                    ? 'border-foreground/20 bg-muted font-medium'
                     : 'border-transparent hover:bg-muted/50'
                   }
                 `}
@@ -1549,21 +1572,19 @@ export function VariablesPanel({
               <div className="flex rounded-md border overflow-hidden">
                 <button
                   onClick={handleSwitchToTable}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                    valuesInputMode === "table" 
-                      ? "bg-muted text-foreground" 
-                      : "text-muted-foreground hover:bg-muted/50"
-                  }`}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${valuesInputMode === "table"
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:bg-muted/50"
+                    }`}
                 >
                   Tablo
                 </button>
                 <button
                   onClick={handleSwitchToJson}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors border-l ${
-                    valuesInputMode === "json" 
-                      ? "bg-muted text-foreground" 
-                      : "text-muted-foreground hover:bg-muted/50"
-                  }`}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors border-l ${valuesInputMode === "json"
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:bg-muted/50"
+                    }`}
                 >
                   JSON
                 </button>
@@ -1578,9 +1599,8 @@ export function VariablesPanel({
 
           {/* Değerler - Tablo Modu */}
           {valuesInputMode === "table" && (
-            <div className={`max-h-[280px] overflow-auto ${
-              selectedVariable?.valuesSource !== "custom" ? 'opacity-40 pointer-events-none' : ''
-            }`}>
+            <div className={`max-h-[280px] overflow-auto ${selectedVariable?.valuesSource !== "custom" ? 'opacity-40 pointer-events-none' : ''
+              }`}>
               <table className="w-full text-xs border-collapse">
                 <thead className="sticky top-0 z-10">
                   <tr className="bg-muted">
@@ -1640,16 +1660,14 @@ export function VariablesPanel({
 
           {/* Değerler - JSON Modu */}
           {valuesInputMode === "json" && (
-            <div className={`p-4 ${
-              selectedVariable?.valuesSource !== "custom" ? 'opacity-40 pointer-events-none' : ''
-            }`}>
+            <div className={`p-4 ${selectedVariable?.valuesSource !== "custom" ? 'opacity-40 pointer-events-none' : ''
+              }`}>
               <Textarea
                 value={tempJsonInput}
                 onChange={(e) => handleJsonInputChange(e.target.value)}
                 placeholder={`[\n  { "value": "1", "label": "Aktif" },\n  { "value": "2", "label": "Pasif" }\n]`}
-                className={`min-h-[240px] font-mono text-sm resize-none ${
-                  jsonError ? 'border-destructive focus-visible:ring-destructive' : ''
-                }`}
+                className={`min-h-[240px] font-mono text-sm resize-none ${jsonError ? 'border-destructive focus-visible:ring-destructive' : ''
+                  }`}
                 disabled={selectedVariable?.valuesSource !== "custom"}
               />
               {jsonError && (
@@ -1690,9 +1708,9 @@ export function VariablesPanel({
               <Button variant="outline" size="sm" className="h-8" onClick={() => setValuesModalOpen(false)}>
                 İptal
               </Button>
-              <Button 
-                size="sm" 
-                className="h-8" 
+              <Button
+                size="sm"
+                className="h-8"
                 onClick={handleSaveCustomValues}
                 disabled={valuesInputMode === "json" && !!jsonError}
               >

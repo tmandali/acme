@@ -14,7 +14,7 @@ const AceEditor = dynamic(
     await import("ace-builds/src-noconflict/theme-tomorrow_night")
     await import("ace-builds/src-noconflict/theme-tomorrow")
     await import("ace-builds/src-noconflict/ext-language_tools")
-    
+
     // SQL anahtar kelimeleri
     const sqlKeywords = [
       "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "IN", "LIKE", "BETWEEN",
@@ -27,13 +27,13 @@ const AceEditor = dynamic(
       "EXISTS", "CASE", "WHEN", "THEN", "ELSE", "END", "CAST", "COALESCE",
       "NULLIF", "TRUE", "FALSE", "ASC", "DESC", "IS", "IS NOT"
     ]
-    
+
     // Tablo isimleri
     const tableNames = [
-      "ACCOUNTS", "ANALYTIC_EVENTS", "FEEDBACK", "INVOICES", 
+      "ACCOUNTS", "ANALYTIC_EVENTS", "FEEDBACK", "INVOICES",
       "ORDERS", "PEOPLE", "PRODUCTS", "REVIEWS"
     ]
-    
+
     // Kolon isimleri
     const columnNames = [
       "ID", "EMAIL", "FIRST_NAME", "LAST_NAME", "PLAN", "SOURCE", "SEATS",
@@ -42,7 +42,7 @@ const AceEditor = dynamic(
       "AMOUNT", "STATUS", "DUE_DATE", "PAID_AT", "USER_ID", "PRODUCT_ID",
       "QUANTITY", "TOTAL", "NAME", "CITY", "CATEGORY", "PRICE", "VENDOR"
     ]
-    
+
     // Custom completer ekle
     const customCompleter = {
       getCompletions: (
@@ -50,7 +50,7 @@ const AceEditor = dynamic(
         _session: unknown,
         _pos: unknown,
         _prefix: string,
-        callback: (error: null, completions: Array<{caption: string, value: string, meta: string, score: number}>) => void
+        callback: (error: null, completions: Array<{ caption: string, value: string, meta: string, score: number }>) => void
       ) => {
         const completions = [
           ...sqlKeywords.map(kw => ({
@@ -75,11 +75,11 @@ const AceEditor = dynamic(
         callback(null, completions)
       }
     }
-    
+
     // Completer'ı ekle
     const langTools = aceBuilds.require("ace/ext/language_tools")
     langTools.addCompleter(customCompleter)
-    
+
     return ace
   },
   { ssr: false }
@@ -95,6 +95,7 @@ interface SQLEditorProps {
   editorHeight: number
   isResizing: boolean
   onResizeStart: (e: React.MouseEvent) => void
+  readOnly?: boolean
 }
 
 export function SQLEditor({
@@ -107,6 +108,7 @@ export function SQLEditor({
   editorHeight,
   isResizing,
   onResizeStart,
+  readOnly = false,
 }: SQLEditorProps) {
   const editorRef = useRef<unknown>(null)
 
@@ -127,6 +129,7 @@ export function SQLEditor({
           showPrintMargin={false}
           showGutter={true}
           highlightActiveLine={true}
+          readOnly={readOnly}
           setOptions={{
             enableBasicAutocompletion: true,
             enableLiveAutocompletion: true,
@@ -134,6 +137,7 @@ export function SQLEditor({
             showLineNumbers: true,
             tabSize: 2,
             fontFamily: "var(--font-geist-mono), monospace",
+            readOnly: readOnly,
           }}
           style={{
             background: "transparent",
@@ -145,11 +149,10 @@ export function SQLEditor({
           <Button
             onClick={isLoading ? onCancelQuery : onRunQuery}
             size="icon"
-            className={`h-10 w-10 rounded-full text-white ${
-              isLoading 
-                ? "bg-red-600 hover:bg-red-700" 
+            className={`h-10 w-10 rounded-full text-white ${isLoading
+                ? "bg-red-600 hover:bg-red-700"
                 : "bg-emerald-600 hover:bg-emerald-700"
-            }`}
+              }`}
           >
             {isLoading ? (
               <Square className="h-4 w-4" />
