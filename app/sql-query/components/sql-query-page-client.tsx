@@ -22,6 +22,8 @@ import {
     Upload,
     Settings2,
     GripVertical,
+    Copy,
+    Check,
 } from "lucide-react"
 
 // Bileşenler
@@ -61,6 +63,32 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     const containerRef = useRef<HTMLDivElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const queryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+    // Basit Kopyalama Butonu Bileşeni
+    const CopyButton = ({ text }: { text: string }) => {
+        const [copied, setCopied] = useState(false)
+
+        const handleCopy = () => {
+            navigator.clipboard.writeText(text)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
+        }
+
+        return (
+            <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={handleCopy}
+            >
+                {copied ? (
+                    <Check className="h-3 w-3 text-green-500" />
+                ) : (
+                    <Copy className="h-3 w-3 text-muted-foreground" />
+                )}
+            </Button>
+        )
+    }
 
     // YAML dosyasına kaydet
     const handleSaveToYaml = useCallback(() => {
@@ -422,7 +450,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                     <div className="flex-1 flex flex-col min-w-0">
                         {/* Database Selector & Editor - Tam ekranda gizle */}
                         {!isResultsFullscreen && (
-                            <div className="flex flex-col" ref={containerRef}>
+                            <div className={`flex flex-col ${activeTab === 'api' ? 'flex-1 overflow-hidden' : ''}`} ref={containerRef}>
                                 {/* Database Selector */}
                                 <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
                                     <span className="text-xs text-muted-foreground">Sample Database</span>
@@ -484,32 +512,69 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
 
                                 {/* SQL Editor */}
                                 {activeTab === "api" ? (
-                                    <div className="p-4 overflow-auto border-b bg-muted/10 font-mono text-xs" style={{ height: editorHeight }}>
+                                    <div className="p-4 overflow-auto bg-muted/10 font-mono text-xs flex-1 h-full">
                                         <div className="mb-4">
-                                            <div className="font-semibold mb-2 text-muted-foreground">API Endpoint</div>
-                                            <div className="bg-muted p-2 rounded select-all">
-                                                POST http://localhost:3000/sql-query/{slug || 'api/execute'}
+                                            <div className="relative group">
+                                                <div className="bg-zinc-100 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 p-4 rounded-md font-mono text-xs overflow-x-auto border border-zinc-200 dark:border-zinc-800">
+                                                    POST http://localhost:3000/sql-query/{slug || 'api/execute'}
+                                                </div>
+                                                <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <CopyButton text={`POST http://localhost:3000/sql-query/${slug || 'api/execute'}`} />
+                                                </div>
                                             </div>
                                         </div>
                                         <div>
-                                            <div className="font-semibold mb-2 text-muted-foreground">Example Request (cURL)</div>
-                                            <pre className="bg-muted p-2 rounded whitespace-pre-wrap select-all">
-                                                {`curl -X POST http://localhost:3000/sql-query/${slug || 'api/execute'} \\
+                                            <div>
+                                                <div className="font-semibold mb-2 text-muted-foreground">Example Request (cURL)</div>
+                                                <div className="relative group">
+                                                    <pre className="bg-zinc-100 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 p-4 rounded-md font-mono text-xs overflow-x-auto whitespace-pre border border-zinc-200 dark:border-zinc-800">
+                                                        <code>{`curl -X POST http://localhost:3000/sql-query/${slug || 'api/execute'} \\
   -H "Content-Type: application/json" \\
   -d '{
     "variables": {${variables.map(v => {
-                                                    const val = v.value || v.defaultValue
-                                                    if (v.filterType === 'switch') {
-                                                        return `\n      "${v.name}": ${val === v.switchTrueValue}`
-                                                    }
-                                                    if (v.type === 'number') {
-                                                        return `\n      "${v.name}": ${val || 'null'}`
-                                                    }
-                                                    return `\n      "${v.name}": "${val}"`
-                                                }).join(',')}
+                                                            const val = v.value || v.defaultValue
+                                                            if (v.filterType === 'switch') {
+                                                                return `\n      "${v.name}": ${val === v.switchTrueValue}`
+                                                            }
+                                                            if (v.filterType === 'between') {
+                                                                return `\n      "${v.name}": ${val || 'null'}`
+                                                            }
+                                                            if (v.filterType === 'dropdown' && v.multiSelect) {
+                                                                return `\n      "${v.name}": ${val || '[]'}`
+                                                            }
+                                                            if (v.type === 'number') {
+                                                                return `\n      "${v.name}": ${val || 'null'}`
+                                                            }
+                                                            return `\n      "${v.name}": "${val}"`
+                                                        }).join(',')}
     }
-  }'`}
-                                            </pre>
+  }'`}</code>
+                                                    </pre>
+                                                    <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <CopyButton text={`curl -X POST http://localhost:3000/sql-query/${slug || 'api/execute'} \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "variables": {${variables.map(v => {
+                                                            const val = v.value || v.defaultValue
+                                                            if (v.filterType === 'switch') {
+                                                                return `\n      "${v.name}": ${val === v.switchTrueValue}`
+                                                            }
+                                                            if (v.filterType === 'between') {
+                                                                return `\n      "${v.name}": ${val || 'null'}`
+                                                            }
+                                                            if (v.filterType === 'dropdown' && v.multiSelect) {
+                                                                return `\n      "${v.name}": ${val || '[]'}`
+                                                            }
+                                                            if (v.type === 'number') {
+                                                                return `\n      "${v.name}": ${val || 'null'}`
+                                                            }
+                                                            return `\n      "${v.name}": "${val}"`
+                                                        }).join(',')}
+    }
+  }'`} />
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 ) : (
@@ -534,16 +599,18 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                         )}
 
                         {/* Results */}
-                        <div className="flex-1 overflow-hidden">
-                            <ResultsTable
-                                results={results}
-                                isLoading={isLoading}
-                                executionTime={executionTime}
-                                queryStatus={queryStatus}
-                                isFullscreen={isResultsFullscreen}
-                                onToggleFullscreen={() => setIsResultsFullscreen(prev => !prev)}
-                            />
-                        </div>
+                        {activeTab !== "api" && (
+                            <div className="flex-1 overflow-hidden">
+                                <ResultsTable
+                                    results={results}
+                                    isLoading={isLoading}
+                                    executionTime={executionTime}
+                                    queryStatus={queryStatus}
+                                    isFullscreen={isResultsFullscreen}
+                                    onToggleFullscreen={() => setIsResultsFullscreen(prev => !prev)}
+                                />
+                            </div>
+                        )}
                     </div>
 
                     {/* Schema Panel - Tam ekranda gizle */}

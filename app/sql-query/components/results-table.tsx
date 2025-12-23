@@ -21,8 +21,8 @@ interface ResultsTableProps {
   onToggleFullscreen?: () => void
 }
 
-export function ResultsTable({ 
-  results, 
+export function ResultsTable({
+  results,
   isLoading,
   executionTime,
   queryStatus,
@@ -36,13 +36,13 @@ export function ResultsTable({
     if (isLoading) {
       startTimeRef.current = Date.now()
       setElapsedTime(0)
-      
+
       const interval = setInterval(() => {
         if (startTimeRef.current) {
           setElapsedTime(Date.now() - startTimeRef.current)
         }
       }, 100)
-      
+
       return () => clearInterval(interval)
     } else {
       startTimeRef.current = null
