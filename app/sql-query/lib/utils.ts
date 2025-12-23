@@ -109,6 +109,33 @@ const formatSqlValue = (val: any) => {
   return typeof val === 'number' ? val : `'${val}'`;
 };
 
+// Bitiş değeri ayarlama (end_offset için ortak mantık)
+const getAdjustedEndValue = (end: any, endOffset: any) => {
+  if (!endOffset) return end;
+
+  let adjustedEnd = end;
+  const offset = Number(endOffset);
+
+  if (typeof end === 'number') {
+    adjustedEnd = end + offset;
+  } else if (typeof end === 'string' && /^\d{8}$/.test(end)) {
+    // yyyyMMdd formatında tarih ise n gün ekle
+    try {
+      const date = parse(end, "yyyyMMdd", new Date());
+      if (isValid(date)) {
+        adjustedEnd = format(addDays(date, offset), "yyyyMMdd");
+      } else {
+        adjustedEnd = end + 'Z';
+      }
+    } catch (e) {
+      adjustedEnd = end + 'Z';
+    }
+  } else if (typeof end === 'string' && end !== "") {
+    adjustedEnd = end + 'Z';
+  }
+  return adjustedEnd;
+};
+
 // > Greater Than
 nunjucksEnv.addFilter('gt', (val, fieldName) => {
   const f = formatSqlValue(val);
@@ -185,28 +212,8 @@ nunjucksEnv.addFilter('like', (val, fieldName) => {
 
 
 // BETWEEN filtresi: Aralık nesnesini alır ve BETWEEN 'start' AND 'end' üretir.
-nunjucksEnv.addFilter('between', (val, fieldName) => {
-  if (val && typeof val === 'object' && ('start' in val || 'begin' in val)) {
-    const start = val.start || val.begin;
-    const end = val.finish || val.end;
-
-    if (!start && !end) return '1=1';
-
-    const fStart = typeof start === 'number' ? start : `'${start}'`;
-    const fEnd = typeof end === 'number' ? end : `'${end}'`;
-    const prefix = fieldName ? `${fieldName} BETWEEN ` : 'BETWEEN ';
-    return `${prefix}${fStart} AND ${fEnd}`;
-  }
-  return '1=1';
-});
-
-
-// RANGE filtresi: Alan adı ile birlikte >= AND < üretir.
-// Örn: {{ CREATED_AT | range }} -> CREATED_AT >= 'start' AND CREATED_AT < 'end'
-// Örn: {{ CREATED_AT | range(end_offset=1) }} -> CREATED_AT >= 'start' AND CREATED_AT < 'end_adjusted'
-nunjucksEnv.addFilter('range', function (val, fieldName, options) {
-  // Nunjucks keyword argument'ları son parametre olarak bir obje içinde gelir.
-  // Eğer fieldName bir objeyse (keyword args), yer değiştir.
+// end_offset parametresi eklenirse range gibi davranır (>= ve < kullanır)
+nunjucksEnv.addFilter('between', function (val, fieldName, options) {
   let actualFieldName = typeof fieldName === 'string' ? fieldName : '';
   let opts = (typeof fieldName === 'object' ? fieldName : options) || {};
 
@@ -216,36 +223,23 @@ nunjucksEnv.addFilter('range', function (val, fieldName, options) {
 
     if (!start && !end) return '1=1';
 
-    // Bitiş sınırı ayarlama (Sadece end_offset varsa yap)
-    let adjustedEnd = end;
-    if (opts.end_offset) {
-      if (typeof end === 'number') {
-        adjustedEnd = end + Number(opts.end_offset);
-      } else if (typeof end === 'string' && /^\d{8}$/.test(end)) {
-        // yyyyMMdd formatında tarih ise n gün ekle
-        try {
-          const date = parse(end, "yyyyMMdd", new Date());
-          if (isValid(date)) {
-            adjustedEnd = format(addDays(date, Number(opts.end_offset)), "yyyyMMdd");
-          } else {
-            adjustedEnd = end + 'Z';
-          }
-        } catch (e) {
-          adjustedEnd = end + 'Z';
-        }
-      } else if (typeof end === 'string' && end !== "") {
-        adjustedEnd = end + 'Z';
-      }
-    }
-
+    const adjustedEnd = getAdjustedEndValue(end, opts.end_offset);
     const fStart = typeof start === 'number' ? start : `'${start}'`;
     const fEnd = typeof adjustedEnd === 'number' ? adjustedEnd : `'${adjustedEnd}'`;
 
-    const prefix = actualFieldName ? `${actualFieldName}` : '';
-    return `${prefix}>=${fStart} AND ${prefix}<${fEnd}`;
+    if (opts.end_offset) {
+      const prefix = actualFieldName ? `${actualFieldName}` : '';
+      return `${prefix}>=${fStart} AND ${prefix}<${fEnd}`;
+    } else {
+      const prefix = actualFieldName ? `${actualFieldName} BETWEEN ` : 'BETWEEN ';
+      return `${prefix}${fStart} AND ${fEnd}`;
+    }
   }
   return '1=1';
 });
+
+
+
 
 
 
@@ -352,7 +346,7 @@ export function processJinjaTemplate(sqlQuery: string, variables: Variable[]): {
     // Nunjucks (Jinja) etiketlerini akıllı filtrelere dönüştür
     // Hem {{ VAR('COL') | range }} hem de {{ VAR | range }} yazımlarını destekler.
     // Sadece SQL karşılaştırma filtrelerini (eq, ne, range vb.) hedef alır.
-    const smartFilters = 'eq|ne|gt|lt|gte|ge|lte|le|like|between|range';
+    const smartFilters = 'eq|ne|gt|lt|gte|ge|lte|le|like|between';
     const processedRawQuery = sqlQuery.replace(
       new RegExp(`\\{\\{\\s*(\\w+)(?:\\((['"]?)(.*?)\\2\\))?\\s*\\|\\s*(${smartFilters})(?:\\s*\\((.*?)\\))?(.*?)\\}\\}`, 'g'),
       (match, varName, q, colName, filterName, args, rest) => {
