@@ -193,18 +193,51 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         return () => observer.disconnect()
     }, [])
 
-    // SQL'deki {{VARIABLE}} pattern'lerinden otomatik kriter oluştur (debounced)
+    // SQL'deki Nunjucks (Jinja) pattern'lerinden otomatik kriter oluştur (debounced)
     useEffect(() => {
         // Kullanıcı yazmayı bitirene kadar bekle (500ms)
         const timeoutId = setTimeout(() => {
-            const templatePattern = /\{\{(\w+)(?::(BEGIN|END))?\}\}/g
+            // Nunjucks Etiket tipleri:
+            // 1. {{ var }}, {{ var.sub }}, {{ var | filter }}
+            // 2. {% if var %}, {% elif var %}, {% for item in var %}
             const foundVariables: string[] = []
-            let match
 
-            while ((match = templatePattern.exec(query)) !== null) {
-                const varName = match[1]
-                if (!foundVariables.includes(varName)) {
-                    foundVariables.push(varName)
+            // Re-usable variables to ignore (Built-in keywords or globals)
+            const ignoredKeywords = new Set([
+                'if', 'else', 'elif', 'endif', 'for', 'in', 'endfor',
+                'set', 'filter', 'endfilter', 'macro', 'endmacro',
+                'include', 'import', 'extends', 'block', 'endblock',
+                'and', 'or', 'not', 'true', 'false', 'null', 'none',
+                'now', 'loop', 'range', 'item'
+            ])
+
+            // {{ ... }} içindeki değişkenleri bul (Fonksiyonel kolon ismi ve filtre argümanları desteği ile)
+            // Örn: {{ VAR('COL') | range(offset=1) }}
+            const expressionMatches = query.matchAll(/\{\{\s*([\w.]+)(?:\((?:['"]?)(.*?)(?:['"]?)\))?(?:\s*\|\s*[\w]+(?:\(.*?\))?)*\s*\}\}/g)
+
+            for (const match of expressionMatches) {
+                // match[1] değişken adını, match[2] ise opsiyonel kolon adını yakalar
+                const baseVar = match[1].split('.')[0]
+                if (baseVar && !ignoredKeywords.has(baseVar) && !foundVariables.includes(baseVar)) {
+                    foundVariables.push(baseVar)
+                }
+            }
+
+
+            // {% ... %} içindeki değişkenleri bul (if, elif, for in)
+            const tagMatches = query.matchAll(/\{%\s*(?:if|elif|for|set)\s+([^%]+)%}/g)
+            for (const match of tagMatches) {
+                const content = match[1]
+                // İçerikteki kelimeleri ayır ve değişken olabilecekleri bul
+                // Örn: "user == 'admin'", "item in items"
+                const words = content.match(/\b[a-zA-Z_]\w*\b/g) || []
+                for (const word of words) {
+                    if (word && !ignoredKeywords.has(word) && !foundVariables.includes(word)) {
+                        // Eğer 'item in items' yapısıysa, 'item' kelimesi döngü değişkenidir, onu sonraki kelimeye bakarak eleyebiliriz
+                        // Ancak basitlik adına ignoredKeywords içinde 'item' olduğu için şanslıyız.
+                        // Daha iyisi: Sadece gerçekten template dışından gelmesi muhtemel olanları al
+                        foundVariables.push(word)
+                    }
                 }
             }
 
@@ -241,6 +274,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         return () => clearTimeout(timeoutId)
     }, [query])
 
+
     // Jinja template işleme fonksiyonu - artık utils'den geliyor, burada sarmalıyoruz
     const processQuery = useCallback((sqlQuery: string) => {
         return processJinjaTemplate(sqlQuery, variables)
@@ -250,15 +284,18 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         // Jinja template işleme
         const { processedQuery, replacements, missingVariables } = processQuery(query)
 
-        // Query'deki tüm template değişkenlerini bul
-        const templatePattern = /\{\{(\w+)\}\}/g
+        // Query'deki tüm template değişkenlerini bul (Nunjucks uyumlu)
+        const templatePattern = /\{\{\s*(\w+)(?::(BEGIN|END))?(?:\.\w+)?\s*\}\}|\{%\s*(?:if|elif|for)\s+(\w+)/g
+
         const allTemplateVars: string[] = []
         let match
         while ((match = templatePattern.exec(query)) !== null) {
-            if (!allTemplateVars.includes(match[1])) {
-                allTemplateVars.push(match[1])
+            const varName = match[1] || match[3]
+            if (varName && !allTemplateVars.includes(varName)) {
+                allTemplateVars.push(varName)
             }
         }
+
 
         // Zorunlu kriterlerde eksik değer kontrolü
         const missingRequired = missingVariables.filter(v => v.required)
@@ -455,24 +492,37 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                 <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
                                     <span className="text-xs text-muted-foreground">Sample Database</span>
                                     <div className="flex items-center gap-4">
-                                        <div className="flex items-center">
-                                            <Tabs
-                                                value={activeTab}
-                                                onValueChange={(val) => setActiveTab(val as "edit" | "preview" | "api")}
-                                                className="w-56"
-                                            >
-                                                <TabsList className="grid w-full grid-cols-3 h-7">
-                                                    <TabsTrigger value="edit" className="text-xs px-2 py-1">Query</TabsTrigger>
-                                                    <TabsTrigger value="preview" className="text-xs px-2 py-1">SQL</TabsTrigger>
-                                                    <TabsTrigger value="api" className="text-xs px-2 py-1">API</TabsTrigger>
-                                                </TabsList>
-                                            </Tabs>
-                                        </div>
-                                        <div className="flex items-center border rounded-md overflow-hidden">
+                                        <Tabs
+                                            value={activeTab}
+                                            onValueChange={(val) => setActiveTab(val as "edit" | "preview" | "api")}
+                                            className="w-auto"
+                                        >
+                                            <TabsList className="inline-flex h-9 p-1 bg-muted rounded-lg">
+                                                <TabsTrigger
+                                                    value="edit"
+                                                    className="px-3 text-xs rounded-md text-muted-foreground data-[state=active]:bg-background dark:data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm hover:text-foreground hover:bg-background/50 transition-all font-medium"
+                                                >
+                                                    Query
+                                                </TabsTrigger>
+                                                <TabsTrigger
+                                                    value="preview"
+                                                    className="px-3 text-xs rounded-md text-muted-foreground data-[state=active]:bg-background dark:data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm hover:text-foreground hover:bg-background/50 transition-all font-medium"
+                                                >
+                                                    SQL
+                                                </TabsTrigger>
+                                                <TabsTrigger
+                                                    value="api"
+                                                    className="px-3 text-xs rounded-md text-muted-foreground data-[state=active]:bg-background dark:data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm hover:text-foreground hover:bg-background/50 transition-all font-medium"
+                                                >
+                                                    API
+                                                </TabsTrigger>
+                                            </TabsList>
+                                        </Tabs>
+                                        <div className="flex items-center p-1 bg-muted rounded-lg h-9">
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
-                                                className={`h-6 px-2 text-xs gap-1 rounded-none border-r ${schemaPanelOpen ? 'bg-muted' : ''}`}
+                                                className={`h-full px-3 text-xs gap-2 rounded-md hover:bg-background/50 hover:text-foreground transition-all font-medium ${schemaPanelOpen ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}`}
                                                 onClick={() => {
                                                     if (schemaPanelOpen) {
                                                         setSchemaPanelOpen(false)
@@ -482,13 +532,13 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                                     }
                                                 }}
                                             >
-                                                <Database className="h-3 w-3" />
+                                                <Database className="h-3.5 w-3.5" />
                                                 Şema
                                             </Button>
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
-                                                className={`h-6 px-2 text-xs gap-1 rounded-none ${variablesPanelOpen ? 'bg-muted' : ''}`}
+                                                className={`h-full px-3 text-xs gap-2 rounded-md hover:bg-background/50 hover:text-foreground transition-all font-medium ${variablesPanelOpen ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}`}
                                                 onClick={() => {
                                                     if (variablesPanelOpen) {
                                                         setVariablesPanelOpen(false)
@@ -498,10 +548,10 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                                     }
                                                 }}
                                             >
-                                                <Settings2 className="h-3 w-3" />
+                                                <Settings2 className="h-3.5 w-3.5" />
                                                 Kriterler
                                                 {variables.length > 0 && (
-                                                    <span className="ml-1 bg-primary/20 text-primary rounded px-1 text-[10px]">
+                                                    <span className={`ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${variablesPanelOpen ? 'bg-primary/20 text-primary' : 'bg-muted-foreground/20 text-muted-foreground'}`}>
                                                         {variables.length}
                                                     </span>
                                                 )}
@@ -537,7 +587,34 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                                                 return `\n      "${v.name}": ${val === v.switchTrueValue}`
                                                             }
                                                             if (v.filterType === 'between') {
-                                                                return `\n      "${v.name}": ${val || 'null'}`
+                                                                const formatDate = (d: any) => {
+                                                                    const s = String(d || "")
+                                                                    if (s && /^\d{8}$/.test(s)) {
+                                                                        return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+                                                                    }
+                                                                    return d || ""
+                                                                }
+
+                                                                let start = v.betweenStart || ""
+                                                                let end = v.betweenEnd || ""
+
+                                                                if (val) {
+                                                                    try {
+                                                                        const parsed = JSON.parse(val)
+                                                                        if (parsed && typeof parsed === 'object') {
+                                                                            if (parsed.start) start = parsed.start
+                                                                            if (parsed.end) end = parsed.end
+                                                                        }
+                                                                    } catch {
+                                                                        // Not JSON object
+                                                                    }
+                                                                }
+
+                                                                const formatted = {
+                                                                    begin: formatDate(start),
+                                                                    end: formatDate(end)
+                                                                }
+                                                                return `\n      "${v.name}": ${JSON.stringify(formatted)}`
                                                             }
                                                             if (v.filterType === 'dropdown' && v.multiSelect) {
                                                                 return `\n      "${v.name}": ${val || '[]'}`
@@ -560,7 +637,34 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                                                 return `\n      "${v.name}": ${val === v.switchTrueValue}`
                                                             }
                                                             if (v.filterType === 'between') {
-                                                                return `\n      "${v.name}": ${val || 'null'}`
+                                                                const formatDate = (d: any) => {
+                                                                    const s = String(d || "")
+                                                                    if (s && /^\d{8}$/.test(s)) {
+                                                                        return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+                                                                    }
+                                                                    return d || ""
+                                                                }
+
+                                                                let start = v.betweenStart || ""
+                                                                let end = v.betweenEnd || ""
+
+                                                                if (val) {
+                                                                    try {
+                                                                        const parsed = JSON.parse(val)
+                                                                        if (parsed && typeof parsed === 'object') {
+                                                                            if (parsed.start) start = parsed.start
+                                                                            if (parsed.end) end = parsed.end
+                                                                        }
+                                                                    } catch {
+                                                                        // Not JSON object
+                                                                    }
+                                                                }
+
+                                                                const formatted = {
+                                                                    begin: formatDate(start),
+                                                                    end: formatDate(end)
+                                                                }
+                                                                return `\n      "${v.name}": ${JSON.stringify(formatted)}`
                                                             }
                                                             if (v.filterType === 'dropdown' && v.multiSelect) {
                                                                 return `\n      "${v.name}": ${val || '[]'}`
@@ -619,9 +723,9 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                             {/* Resize Handle */}
                             <div
                                 onMouseDown={handlePanelResizeStart}
-                                className={`w-1 cursor-col-resize flex items-center justify-center hover:bg-primary/20 transition-colors ${isResizingPanel ? 'bg-primary/30' : ''}`}
+                                className={`w-0 cursor-col-resize relative z-10 flex items-center justify-center`}
                             >
-                                <GripVertical className="h-4 w-4 text-muted-foreground/30" />
+                                <div className={`absolute -left-1 w-2 h-full hover:bg-primary/20 transition-colors ${isResizingPanel ? 'bg-primary/30' : ''}`} />
                             </div>
                             <div className="flex-1 overflow-hidden">
                                 <SchemaPanel
@@ -639,9 +743,9 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                             {/* Resize Handle */}
                             <div
                                 onMouseDown={handlePanelResizeStart}
-                                className={`w-1 cursor-col-resize flex items-center justify-center hover:bg-primary/20 transition-colors ${isResizingPanel ? 'bg-primary/30' : ''}`}
+                                className={`w-0 cursor-col-resize relative z-10 flex items-center justify-center`}
                             >
-                                <GripVertical className="h-4 w-4 text-muted-foreground/30" />
+                                <div className={`absolute -left-1 w-2 h-full hover:bg-primary/20 transition-colors ${isResizingPanel ? 'bg-primary/30' : ''}`} />
                             </div>
                             <div className="flex-1 overflow-hidden">
                                 <VariablesPanel

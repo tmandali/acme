@@ -141,7 +141,7 @@ export function ResultsTable({
               {columns.map((col) => (
                 <th
                   key={col}
-                  className="text-left text-[10px] uppercase tracking-wider text-muted-foreground font-medium px-2 py-1.5 whitespace-nowrap border-r last:border-r-0 bg-muted"
+                  className="text-left text-[10px] uppercase tracking-wider text-muted-foreground font-medium px-2 py-1.5 whitespace-nowrap border-r bg-muted"
                 >
                   {col}
                 </th>
@@ -154,7 +154,7 @@ export function ResultsTable({
                 {columns.map((col) => (
                   <td
                     key={col}
-                    className="px-2 py-1 whitespace-nowrap border-r last:border-r-0"
+                    className="px-2 py-1 whitespace-nowrap border-r"
                   >
                     {row[col] === "" ? (
                       <span className="text-muted-foreground/50 italic text-[10px]">null</span>

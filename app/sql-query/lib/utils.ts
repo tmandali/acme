@@ -1,8 +1,13 @@
 import type { Variable } from "./types"
+import nunjucks from "nunjucks"
+
 import {
   Key, Link2, ToggleLeft, Clock, FileJson, FileText, Circle,
   Type, Hash, Calendar, ListFilter, ChevronDown, TextCursorInput, ArrowLeftRight
 } from "lucide-react"
+import { format, addDays, parse, isValid } from "date-fns"
+
+
 
 // Helper: Parse default value (can be JSON array or single value)
 export function parseDefaultValues(value: string): string[] {
@@ -58,131 +63,333 @@ export function getColumnIcon(type: string, hasFk?: boolean) {
   return columnTypeConfig[type] || { icon: Circle, color: "text-muted-foreground" }
 }
 
+// Nunjucks ortamını yapılandır
+const nunjucksEnv = nunjucks.configure({ autoescape: false });
+
+const formatValueWithType = (val: any) => {
+  if (val === undefined || val === null || val === '') return 'NULL';
+  if (typeof val === 'number') return val;
+  if (Array.isArray(val)) {
+    const joined = val.map(v => typeof v === 'number' ? v : `'${v}'`).join(', ');
+    return joined;
+  }
+  return `'${val}'`;
+}
+
+// SQL için özel filtreler ekle
+nunjucksEnv.addFilter('quote', (val) => {
+  if (typeof val === 'number') return val;
+  if (Array.isArray(val)) return val.map(v => typeof v === 'number' ? v : `'${v}'`).join(', ');
+  return `'${val}'`;
+});
+
+
+nunjucksEnv.addFilter('sql', (val) => {
+  if (val === undefined || val === null || val === '') return 'NULL';
+  if (typeof val === 'number') return val;
+  if (Array.isArray(val)) {
+    const joined = val.map(v => typeof v === 'string' ? `'${v}'` : v).join(', ');
+    return `(${joined})`;
+  }
+  if (typeof val === 'boolean') return val ? '1' : '0';
+  return `'${val}'`;
+});
+
+// Değerin bir aralık (range) nesnesi olup olmadığını kontrol et
+const isRange = (val: any) => val && typeof val === 'object' && ('start' in val || 'begin' in val);
+
+// Aralığın parçalarına erişim
+nunjucksEnv.addFilter('begin', (val) => isRange(val) ? (val.begin || val.start) : val);
+nunjucksEnv.addFilter('start', (val) => isRange(val) ? (val.start || val.begin) : val);
+nunjucksEnv.addFilter('end', (val) => isRange(val) ? (val.finish || val.end) : val);
+nunjucksEnv.addFilter('finish', (val) => isRange(val) ? (val.finish || val.end) : val);
+
+const formatSqlValue = (val: any) => {
+  if (val === undefined || val === null || val === '') return null;
+  return typeof val === 'number' ? val : `'${val}'`;
+};
+
+// > Greater Than
+nunjucksEnv.addFilter('gt', (val, fieldName) => {
+  const f = formatSqlValue(val);
+  if (f === null) return '';
+  const prefix = fieldName ? `${fieldName} > ` : '> ';
+  return `${prefix}${f}`;
+});
+
+// < Less Than
+nunjucksEnv.addFilter('lt', (val, fieldName) => {
+  const f = formatSqlValue(val);
+  if (f === null) return '';
+  const prefix = fieldName ? `${fieldName} < ` : '< ';
+  return `${prefix}${f}`;
+});
+
+// >= Greater Than or Equal To
+const gteFunc = (val: any, fieldName?: string) => {
+  const f = formatSqlValue(val);
+  if (f === null) return '';
+  const prefix = fieldName ? `${fieldName} >= ` : '>= ';
+  return `${prefix}${f}`;
+};
+nunjucksEnv.addFilter('gte', gteFunc);
+nunjucksEnv.addFilter('ge', gteFunc);
+
+// <= Less Than or Equal To
+const lteFunc = (val: any, fieldName?: string) => {
+  const f = formatSqlValue(val);
+  if (f === null) return '';
+  const prefix = fieldName ? `${fieldName} <= ` : '<= ';
+  return `${prefix}${f}`;
+};
+nunjucksEnv.addFilter('lte', lteFunc);
+nunjucksEnv.addFilter('le', lteFunc);
+
+
+// == Equal (Smart: handles null and IN)
+const eqFunc = (val: any, fieldName?: string) => {
+  if (val === undefined || val === null || val === '') {
+    return fieldName ? `${fieldName} IS NULL` : 'IS NULL';
+  }
+  if (Array.isArray(val)) {
+    if (val.length === 0) return fieldName ? `${fieldName} IS NULL` : 'IS NULL';
+    const joined = val.map(v => typeof v === 'number' ? v : `'${v}'`).join(', ');
+    return fieldName ? `${fieldName} IN (${joined})` : `IN (${joined})`;
+  }
+  const f = formatSqlValue(val);
+  return fieldName ? `${fieldName} = ${f}` : `= ${f}`;
+};
+nunjucksEnv.addFilter('eq', eqFunc);
+
+
+// != Not Equal
+nunjucksEnv.addFilter('ne', (val, fieldName) => {
+  if (val === undefined || val === null || val === '') {
+    return fieldName ? `${fieldName} IS NOT NULL` : 'IS NOT NULL';
+  }
+  if (Array.isArray(val)) {
+    if (val.length === 0) return fieldName ? `${fieldName} IS NOT NULL` : 'IS NOT NULL';
+    const joined = val.map(v => typeof v === 'number' ? v : `'${v}'`).join(', ');
+    return fieldName ? `${fieldName} NOT IN (${joined})` : `NOT IN (${joined})`;
+  }
+  const f = formatSqlValue(val);
+  return fieldName ? `${fieldName} <> ${f}` : `<> ${f}`;
+});
+
+
+// Benzer şekilde LIKE için
+nunjucksEnv.addFilter('like', (val, fieldName) => {
+  if (val === undefined || val === null || val === '') return fieldName ? `${fieldName} IS NOT NULL` : 'IS NOT NULL';
+  return fieldName ? `${fieldName} LIKE '%${val}%'` : `LIKE '%${val}%'`;
+});
+
+
+// BETWEEN filtresi: Aralık nesnesini alır ve BETWEEN 'start' AND 'end' üretir.
+nunjucksEnv.addFilter('between', (val, fieldName) => {
+  if (val && typeof val === 'object' && ('start' in val || 'begin' in val)) {
+    const start = val.start || val.begin;
+    const end = val.finish || val.end;
+
+    if (!start && !end) return '1=1';
+
+    const fStart = typeof start === 'number' ? start : `'${start}'`;
+    const fEnd = typeof end === 'number' ? end : `'${end}'`;
+    const prefix = fieldName ? `${fieldName} BETWEEN ` : 'BETWEEN ';
+    return `${prefix}${fStart} AND ${fEnd}`;
+  }
+  return '1=1';
+});
+
+
+// RANGE filtresi: Alan adı ile birlikte >= AND < üretir.
+// Örn: {{ CREATED_AT | range }} -> CREATED_AT >= 'start' AND CREATED_AT < 'end'
+// Örn: {{ CREATED_AT | range(end_offset=1) }} -> CREATED_AT >= 'start' AND CREATED_AT < 'end_adjusted'
+nunjucksEnv.addFilter('range', function (val, fieldName, options) {
+  // Nunjucks keyword argument'ları son parametre olarak bir obje içinde gelir.
+  // Eğer fieldName bir objeyse (keyword args), yer değiştir.
+  let actualFieldName = typeof fieldName === 'string' ? fieldName : '';
+  let opts = (typeof fieldName === 'object' ? fieldName : options) || {};
+
+  if (val && typeof val === 'object' && ('start' in val || 'begin' in val)) {
+    const start = val.start || val.begin;
+    const end = val.finish || val.end;
+
+    if (!start && !end) return '1=1';
+
+    // Bitiş sınırı ayarlama (Sadece end_offset varsa yap)
+    let adjustedEnd = end;
+    if (opts.end_offset) {
+      if (typeof end === 'number') {
+        adjustedEnd = end + Number(opts.end_offset);
+      } else if (typeof end === 'string' && /^\d{8}$/.test(end)) {
+        // yyyyMMdd formatında tarih ise n gün ekle
+        try {
+          const date = parse(end, "yyyyMMdd", new Date());
+          if (isValid(date)) {
+            adjustedEnd = format(addDays(date, Number(opts.end_offset)), "yyyyMMdd");
+          } else {
+            adjustedEnd = end + 'Z';
+          }
+        } catch (e) {
+          adjustedEnd = end + 'Z';
+        }
+      } else if (typeof end === 'string' && end !== "") {
+        adjustedEnd = end + 'Z';
+      }
+    }
+
+    const fStart = typeof start === 'number' ? start : `'${start}'`;
+    const fEnd = typeof adjustedEnd === 'number' ? adjustedEnd : `'${adjustedEnd}'`;
+
+    const prefix = actualFieldName ? `${actualFieldName}` : '';
+    return `${prefix}>=${fStart} AND ${prefix}<${fEnd}`;
+  }
+  return '1=1';
+});
+
+
+
+
 // Jinja template işleme fonksiyonu
 export function processJinjaTemplate(sqlQuery: string, variables: Variable[]): { processedQuery: string; replacements: Record<string, string>; missingVariables: { name: string; label: string; required: boolean }[] } {
+  const context: Record<string, any> = {
+    now: format(new Date(), "yyyyMMdd")
+  }
+
   const replacements: Record<string, string> = {}
   const missingVariables: { name: string; label: string; required: boolean }[] = []
 
-  // {{VARIABLE_NAME}} veya {{VARIABLE_NAME:SUFFIX}} pattern'ini bul ve değiştir
-  const templatePattern = /\{\{(\w+)(?::(BEGIN|END))?\}\}/g
+  // Değişkenleri Nunjucks context'ine hazırla
+  variables.forEach(variable => {
+    const activeValue = variable.value || variable.defaultValue
 
-  const processedQuery = sqlQuery.replace(templatePattern, (match, varName, suffix) => {
-    // Variable'lardan değeri bul - sadece name ile eşleştir
-    const variable = variables.find(v => v.name === varName)
+    if (activeValue || variable.filterType === "between" || variable.filterType === "switch") {
+      let rawVal: any = activeValue
+      let sqlVal = ""
 
-    // Aktif değeri al (value boşsa defaultValue'yu kullan)
-    const activeValue = variable?.value || variable?.defaultValue
+      // Tip dönüşümü: Sayı ise gerçek number tipine çevir
+      const processValueType = (v: any) => {
+        if (v === undefined || v === null || v === "") return v;
+        if (variable.type === "number") {
+          const num = Number(v);
+          return isNaN(num) ? v : num;
+        }
+        return v;
+      };
 
-    if (variable && activeValue) {
-      let replacement: string
-
-      // Switch filtre yöntemi için değeri olduğu gibi kullan (tırnaksız)
       if (variable.filterType === "switch") {
-        replacement = activeValue
-        replacements[match] = replacement
-        return replacement
-      }
-
-      // Between (Aralık) filtre yöntemi için özel işlem
-      if (variable.filterType === "between") {
-        try {
-          // Değer çözümleme önceliği:
-          // 1. variable.value (aktif değer)
-          // 2. variable.defaultValue (varsayılan değer)
-          // 3. variable.betweenStart/End (ayrı alanlar)
-
-          let range: { start: string, end: string } = { start: "", end: "" }
-
-          // 1. Aktif değeri dene
-          if (variable.value) {
-            try {
-              range = JSON.parse(variable.value)
-            } catch (e) {
-              // Parse hatası, devam et
+        rawVal = processValueType(activeValue)
+        sqlVal = String(rawVal)
+      } else if (variable.filterType === "between") {
+        let range: { start: string, end: string } = { start: "", end: "" }
+        if (variable.value) {
+          try {
+            const parsed = JSON.parse(variable.value)
+            if (parsed && typeof parsed === 'object') {
+              range.start = parsed.start || ""
+              range.end = parsed.end || ""
             }
-          }
-
-          // 2. Varsayılan değeri dene (eğer start/end boşsa)
-          if ((!range.start || !range.end) && variable.defaultValue) {
-            try {
-              const defaultRange = JSON.parse(variable.defaultValue)
-              range = {
-                start: range.start || defaultRange.start,
-                end: range.end || defaultRange.end
-              }
-            } catch (e) {
-              // Parse hatası, devam et
+          } catch (e) { }
+        }
+        if ((!range.start || !range.end) && variable.defaultValue) {
+          try {
+            const defaultParsed = JSON.parse(variable.defaultValue)
+            if (defaultParsed && typeof defaultParsed === 'object') {
+              range.start = range.start || defaultParsed.start || ""
+              range.end = range.end || defaultParsed.end || ""
             }
-          }
-
-          // 3. Ayrı alanları dene (fallback)
-          if (!range.start) range.start = variable.betweenStart || ""
-          if (!range.end) range.end = variable.betweenEnd || ""
-
-          const start = range.start
-          const end = range.end
-
-          if (start && end) {
-            // Suffix varsa sadece ilgili değeri döndür
-            if (suffix === "BEGIN") {
-              replacement = variable.type === "number" ? start : `'${start}'`
-            } else if (suffix === "END") {
-              replacement = variable.type === "number" ? end : `'${end}'`
-            } else {
-              // Suffix yoksa BETWEEN clause oluştur
-              replacement = variable.type === "number"
-                ? `${start} AND ${end}`
-                : `'${start}' AND '${end}'`
-            }
-
-            replacements[match] = replacement
-            return replacement
-          }
-        } catch (e) {
-          console.error("Between değeri parse edilemedi:", activeValue)
+          } catch (e) { }
         }
-      }
+        if (!range.start) range.start = variable.betweenStart || ""
+        if (!range.end) range.end = variable.betweenEnd || ""
 
-      // Çoklu değer için array olabilir
-      const values = parseDefaultValues(activeValue)
 
-      if (values.length > 1) {
-        // Çoklu değer: IN clause için format
-        if (variable.type === "number") {
-          replacement = `(${values.join(", ")})`
-        } else {
-          replacement = `('${values.join("', '")}')`
+        const start = processValueType(range.start);
+        const end = processValueType(range.end);
+
+        rawVal = {
+          start: start,
+          end: end,
+          begin: start,
+          finish: end
         }
-      } else if (values.length === 1) {
-        // Tek değer
-        if (variable.type === "number") {
-          replacement = values[0]
-        } else {
-          replacement = `'${values[0]}'`
-        }
+
+        const fStart = typeof start === 'number' ? start : `'${start}'`;
+        const fEnd = typeof end === 'number' ? end : `'${end}'`;
+        sqlVal = `${fStart} AND ${fEnd}`;
+
+        context[`${variable.name}_BEGIN`] = fStart;
+        context[`${variable.name}_END`] = fEnd;
+
       } else {
-        // Değer boş - eksik değişken olarak işaretle
-        missingVariables.push({ name: varName, label: variable.label, required: variable.required })
-        return "" // Boş değer için boş string kullan
+        const values = parseDefaultValues(activeValue)
+        const typedValues = values.map(v => processValueType(v));
+
+        if (typedValues.length > 1) {
+          rawVal = typedValues
+          const formatted = typedValues.map(v => typeof v === 'number' ? v : `'${v}'`);
+          sqlVal = `(${formatted.join(", ")})`;
+        } else if (typedValues.length === 1) {
+          rawVal = typedValues[0]
+          sqlVal = typeof rawVal === 'number' ? String(rawVal) : `'${rawVal}'`;
+
+        } else {
+          rawVal = ""
+          sqlVal = "''"
+        }
       }
 
-      replacements[match] = replacement
-      return replacement
-    }
+      context[variable.name] = rawVal
+      context[variable.name + '_sql'] = sqlVal
+      replacements[variable.name] = String(sqlVal)
 
-    // Variable tanımlı ama değeri yok
-    if (variable) {
-      missingVariables.push({ name: varName, label: variable.label, required: variable.required })
-      return "" // Değer yoksa boş string kullan
+    } else if (variable.required) {
+      missingVariables.push({ name: variable.name, label: variable.label, required: true })
     }
-
-    // Variable hiç tanımlı değil - boş string kullan
-    missingVariables.push({ name: varName, label: varName, required: false })
-    return ""
   })
 
-  return { processedQuery, replacements, missingVariables }
+  try {
+    // Nunjucks (Jinja) etiketlerini akıllı filtrelere dönüştür
+    // Hem {{ VAR('COL') | range }} hem de {{ VAR | range }} yazımlarını destekler.
+    // Sadece SQL karşılaştırma filtrelerini (eq, ne, range vb.) hedef alır.
+    const smartFilters = 'eq|ne|gt|lt|gte|ge|lte|le|like|between|range';
+    const processedRawQuery = sqlQuery.replace(
+      new RegExp(`\\{\\{\\s*(\\w+)(?:\\((['"]?)(.*?)\\2\\))?\\s*\\|\\s*(${smartFilters})(?:\\s*\\((.*?)\\))?(.*?)\\}\\}`, 'g'),
+      (match, varName, q, colName, filterName, args, rest) => {
+        const fieldName = colName || varName;
+        const trimmedArgs = (args || '').trim();
+        const trimmedRest = (rest || '').trim();
+
+        // Filtreye gönderilecek argümanları inşa et
+        let finalFilterArgs = `'${fieldName}'`;
+        if (trimmedArgs) {
+          finalFilterArgs += `, ${trimmedArgs}`;
+        }
+
+        return `{{ ${varName} | ${filterName}(${finalFilterArgs}) ${trimmedRest} }}`;
+      }
+    );
+
+
+
+
+
+
+
+    const processedQuery = nunjucksEnv.renderString(processedRawQuery, context)
+
+    return { processedQuery, replacements, missingVariables }
+  } catch (error: any) {
+    console.error("Nunjucks render error:", error)
+    return {
+      processedQuery: `/* TEMPLATE ERROR: ${error.message} */\n${sqlQuery}`,
+      replacements,
+      missingVariables
+    }
+  }
 }
+
+
 
 // Label'dan name oluştur (uppercase, özel karakterleri _ ile değiştir)
 export function generateNameFromLabel(label: string): string {

@@ -32,7 +32,12 @@ export async function POST(
         const variables = parsedData.variables || []
 
         // 3. Parse Request Body
-        const body = await request.json()
+        let body = await request.json()
+
+        // Support wrapping variables in a "variables" key
+        if (body.variables && typeof body.variables === 'object' && !Array.isArray(body.variables)) {
+            body = body.variables
+        }
 
         // 4. Map Body Values to Variables
         // The goal is to set variable.value so processJinjaTemplate can use it.
@@ -51,8 +56,8 @@ export async function POST(
 
                 if (v.filterType === "between" && typeof incomingValue === "object") {
                     // Handle { BEGIN: "...", END: "..." } -> { start: "...", end: "..." }
-                    // Also support { start: "...", end: "..." } if passed directly
-                    const start = incomingValue.BEGIN || incomingValue.start || ""
+                    // Also support { start: "...", end: "..." } and { begin: "...", end: "..." }
+                    const start = incomingValue.BEGIN || incomingValue.start || incomingValue.begin || ""
                     const end = incomingValue.END || incomingValue.end || ""
                     return {
                         ...v,

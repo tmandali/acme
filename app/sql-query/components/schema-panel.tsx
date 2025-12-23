@@ -21,10 +21,10 @@ interface SchemaPanelProps {
   onClose: () => void
 }
 
-export function SchemaPanel({ 
-  schema, 
+export function SchemaPanel({
+  schema,
   onTableClick,
-  onClose 
+  onClose
 }: SchemaPanelProps) {
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set(["ACCOUNTS"]))
   const [modelsExpanded, setModelsExpanded] = useState(true)
@@ -52,7 +52,7 @@ export function SchemaPanel({
   return (
     <div className="h-full flex flex-col border-l bg-card">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/20">
+      <div className="flex items-center justify-between px-4 h-[53px] border-b bg-muted/20">
         <div className="flex items-center gap-2.5">
           <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted">
             <Database className="h-3.5 w-3.5 text-muted-foreground" />

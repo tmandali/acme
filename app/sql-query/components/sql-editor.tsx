@@ -43,6 +43,43 @@ const AceEditor = dynamic(
       "QUANTITY", "TOTAL", "NAME", "CITY", "CATEGORY", "PRICE", "VENDOR"
     ]
 
+    // Nunjucks / Özel Filtreler ve Açıklamaları
+    const filterDetails: Record<string, string> = {
+      eq: "Eşitlik kontrolü. Boş değerlerde 'IS NULL', dizilerde 'IN (...)' üretir.",
+      ne: "Eşitsizlik kontrolü. Boş değerlerde 'IS NOT NULL', dizilerde 'NOT IN (...)' üretir.",
+      gt: "Büyüktür (>) kontrolü.",
+      lt: "Küçüktür (<) kontrolü.",
+      gte: "Büyük eşittir (>=) kontrolü.",
+      ge: "Büyük eşittir (>=) kontrolü.",
+      lte: "Küçük eşittir (<=) kontrolü.",
+      le: "Küçük eşittir (<=) kontrolü.",
+      like: "Benzerlik araması. Değeri '%değer%' formatına sokar.",
+      between: "Başlangıç ve bitiş değerleri arasında (BETWEEN ... AND ...) filtreleme yapar.",
+      range: "İleri seviye aralık filtresi (>= ve <). end_offset parametresi alabilir.",
+      sql: "Değeri tipine göre formatlar. Sayı ise olduğu gibi, metin ise tırnaklı verir.",
+      quote: "Değeri her zaman tek tırnak içine alır.",
+      begin: "Aralık nesnesinin başlangıç (start) değerini döner.",
+      start: "Aralık nesnesinin başlangıç (start) değerini döner.",
+      end: "Aralık nesnesinin bitiş (end) değerini döner.",
+      finish: "Aralık nesnesinin bitiş (end) değerini döner."
+    }
+    const customFilters = Object.keys(filterDetails)
+
+    const keywordDetails: Record<string, string> = {
+      if: "Koşullu mantık başlatır.",
+      else: "Koşul sağlanmadığında çalışacak blok.",
+      elif: "Alternatif koşul.",
+      endif: "Koşullu mantık bloğunu kapatır.",
+      for: "Döngü başlatır (Örn: for item in list).",
+      in: "Döngü veya aidiyet kontrolü.",
+      endfor: "Döngü bloğunu kapatır.",
+      set: "Değişken tanımlar (Örn: set var = 'değer').",
+      now: "Sistemin şu anki tarihini (yyyyMMdd) döner."
+    }
+    const nunjucksKeywords = Object.keys(keywordDetails)
+
+
+
     // Custom completer ekle
     const customCompleter = {
       getCompletions: (
@@ -50,8 +87,9 @@ const AceEditor = dynamic(
         _session: unknown,
         _pos: unknown,
         _prefix: string,
-        callback: (error: null, completions: Array<{ caption: string, value: string, meta: string, score: number }>) => void
+        callback: (error: null, completions: Array<{ caption: string, value: string, meta: string, score: number, docHTML?: string, docText?: string }>) => void
       ) => {
+
         const completions = [
           ...sqlKeywords.map(kw => ({
             caption: kw,
@@ -70,15 +108,79 @@ const AceEditor = dynamic(
             value: c,
             meta: "column",
             score: 800
+          })),
+          ...customFilters.map(f => ({
+            caption: f,
+            value: f,
+            meta: "filter",
+            score: 1100,
+            docHTML: `<b>${f}</b><hr/>${filterDetails[f]}`
+          })),
+          ...nunjucksKeywords.map(k => ({
+            caption: k,
+            value: k,
+            meta: "nunjucks",
+            score: 1050,
+            docHTML: `<b>${k}</b><hr/>${keywordDetails[k]}`
           }))
         ]
+
+
         callback(null, completions)
       }
     }
 
+    // SQL modunu Nunjucks için genişlet
+    const SqlMode = aceBuilds.require("ace/mode/sql").Mode;
+    const SqlHighlightRules = aceBuilds.require("ace/mode/sql_highlight_rules").SqlHighlightRules;
+    const oop = aceBuilds.require("ace/lib/oop");
+
+    const CustomSqlHighlightRules = function (this: any) {
+      this.$rules = new SqlHighlightRules().getRules();
+
+      // Jinja/Nunjucks etiketleri için kurallar
+      const jinjaRules = [
+        {
+          token: "variable.language", // {{ }} ve {% %} için
+          regex: "\\{\\{|\\}\\}|\\{%|%\\}"
+        },
+        {
+          token: "support.function", // Özel filtreler için
+          regex: "\\b(" + customFilters.join("|") + ")\\b"
+        },
+        {
+          token: "keyword.control", // Nunjucks anahtar kelimeleri
+          regex: "\\b(" + nunjucksKeywords.join("|") + ")\\b"
+        }
+      ];
+
+      // Her state'in başına bu kuralları ekle (Özellikle "start")
+      for (const state in this.$rules) {
+        this.$rules[state].unshift(...jinjaRules);
+      }
+    };
+    oop.inherits(CustomSqlHighlightRules, SqlHighlightRules);
+
+    const CustomSqlMode = function (this: any) {
+      SqlMode.call(this);
+      this.HighlightRules = CustomSqlHighlightRules;
+    };
+    oop.inherits(CustomSqlMode, SqlMode);
+
+    // Ace'e yeni modu tanıt
+    ; (aceBuilds as any).define("ace/mode/sql_nunjucks", ["require", "exports", "module"], (require: any, exports: any) => {
+      exports.Mode = CustomSqlMode;
+    });
+
+
     // Completer'ı ekle
     const langTools = aceBuilds.require("ace/ext/language_tools")
-    langTools.addCompleter(customCompleter)
+    langTools.setCompleters([
+      langTools.snippetCompleter,
+      langTools.keyWordCompleter,
+      customCompleter
+    ])
+
 
     return ace
   },
@@ -110,15 +212,16 @@ export function SQLEditor({
   onResizeStart,
   readOnly = false,
 }: SQLEditorProps) {
-  const editorRef = useRef<unknown>(null)
+
 
   return (
     <>
       {/* SQL Editor */}
       <div className="relative" style={{ height: editorHeight }}>
         <AceEditor
-          ref={editorRef as React.LegacyRef<unknown>}
-          mode="sql"
+          mode="sql_nunjucks"
+
+
           theme={isDarkMode ? "tomorrow_night" : "tomorrow"}
           onChange={onQueryChange}
           value={query}
@@ -150,8 +253,8 @@ export function SQLEditor({
             onClick={isLoading ? onCancelQuery : onRunQuery}
             size="icon"
             className={`h-10 w-10 rounded-full text-white ${isLoading
-                ? "bg-red-600 hover:bg-red-700"
-                : "bg-emerald-600 hover:bg-emerald-700"
+              ? "bg-red-600 hover:bg-red-700"
+              : "bg-emerald-600 hover:bg-emerald-700"
               }`}
           >
             {isLoading ? (

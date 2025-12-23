@@ -1,4 +1,4 @@
-POST http://localhost:3000/api/sql-query/test2
+POST http://localhost:3000/sql-query/test2
 Content-Type: application/json
 
 {
@@ -7,5 +7,6 @@ Content-Type: application/json
   "CREATED_AT" : {
     "BEGIN":"2025-12-08",
     "END":"2025-12-08"
-  }
+  },
+  "STATUS" : true
 }

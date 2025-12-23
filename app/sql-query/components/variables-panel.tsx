@@ -459,18 +459,41 @@ export function VariablesPanel({
   const [jsonError, setJsonError] = useState<string | null>(null)
   const [isEditMode, setIsEditMode] = useState(false)
 
-  // SQL'de kullanılan değişkenleri bul
+  // SQL'de kullanılan değişkenleri bul (Nunjucks uyumlu)
   const getUsedVariablesInQuery = useCallback(() => {
-    const templatePattern = /\{\{(\w+)(?::(BEGIN|END))?\}\}/g
-    const usedVars: string[] = []
-    let match
-    while ((match = templatePattern.exec(query)) !== null) {
-      if (!usedVars.includes(match[1])) {
-        usedVars.push(match[1])
+    const foundVariables: string[] = []
+
+    const ignoredKeywords = new Set([
+      'if', 'else', 'elif', 'endif', 'for', 'in', 'endfor',
+      'set', 'filter', 'endfilter', 'macro', 'endmacro',
+      'include', 'import', 'extends', 'block', 'endblock',
+      'and', 'or', 'not', 'true', 'false', 'null', 'none',
+      'now', 'loop', 'range', 'item'
+    ])
+
+    // {{ ... }} içindeki değişkenleri bul (Fonksiyonel kolon ismi ve filtre argümanları desteği ile)
+    const expressionMatches = query.matchAll(/\{\{\s*([\w.]+)(?:\((?:['"]?)(.*?)(?:['"]?)\))?(?:\s*\|\s*[\w]+(?:\(.*?\))?)*\s*\}\}/g)
+
+    for (const match of expressionMatches) {
+      const baseVar = match[1].split('.')[0]
+      if (baseVar && !ignoredKeywords.has(baseVar) && !foundVariables.includes(baseVar)) {
+        foundVariables.push(baseVar)
       }
     }
-    return usedVars
+
+    // {% ... %} içindeki değişkenleri bul (if, elif, for in, set)
+    const tagMatches = query.matchAll(/\{%\s*(?:if|elif|for|set)\s+([^%]+)%}/g)
+    for (const match of tagMatches) {
+      const words = match[1].match(/\b[a-zA-Z_]\w*\b/g) || []
+      for (const word of words) {
+        if (word && !ignoredKeywords.has(word) && !foundVariables.includes(word)) {
+          foundVariables.push(word)
+        }
+      }
+    }
+    return foundVariables
   }, [query])
+
 
   const usedVariablesInQuery = getUsedVariablesInQuery()
 
@@ -646,7 +669,7 @@ export function VariablesPanel({
   return (
     <div className="h-full flex flex-col border-l bg-card">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/20">
+      <div className="flex items-center justify-between px-4 h-[53px] border-b bg-muted/20">
         <div className="flex items-center gap-2.5">
           <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted">
             <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
@@ -686,12 +709,23 @@ export function VariablesPanel({
             <p className="text-xs text-muted-foreground text-center mb-2">
               SQL sorgusuna kriter eklemek için
             </p>
-            <code className="text-xs bg-muted px-2 py-1 rounded font-mono text-foreground">
-              {"{{DEĞIŞKEN_ADI}}"}
-            </code>
-            <p className="text-xs text-muted-foreground text-center mt-2">
-              formatını kullanın
+            <div className="flex flex-col gap-1.5 w-full mt-4">
+              <div className="flex items-center gap-2 px-2 py-1.5 bg-muted/40 rounded border border-dashed text-[10px] font-mono text-muted-foreground">
+                <span className="text-primary">{"{{ "}</span>
+                <span>DEĞİŞKEN</span>
+                <span className="text-primary">{"('KOLON') | eq }}"}</span>
+              </div>
+              <div className="flex items-center gap-2 px-2 py-1.5 bg-muted/40 rounded border border-dashed text-[10px] font-mono text-muted-foreground">
+                <span className="text-primary">{"{{ "}</span>
+                <span>TARİH</span>
+                <span className="text-primary">{" | range }}"}</span>
+              </div>
+            </div>
+            <p className="text-[10px] text-muted-foreground text-center mt-3 px-4 italic">
+              Nunjucks sözdizimi ve fonksiyonel kolon isimleri (Örn: VAR(&apos;KOLON&apos;)) kullanabilirsiniz.
             </p>
+
+
           </div>
         ) : !isEditMode ? (
           /* Value Entry Mode - Değer Giriş Modu (sadece SQL'de kullanılanlar) */
@@ -898,8 +932,25 @@ export function VariablesPanel({
                     const handleBetweenChange = (field: "start" | "end", val: string) => {
                       const current = variable.value ? JSON.parse(variable.value) : { start: variable.betweenStart || "", end: variable.betweenEnd || "" }
                       current[field] = val
+
+                      // Doğrulama: Bitiş başlangıçtan küçük olamaz
+                      if (current.start && current.end) {
+                        if (variable.type === "number") {
+                          const s = Number(current.start)
+                          const e = Number(current.end)
+                          if (!isNaN(s) && !isNaN(e)) {
+                            if (field === "start" && s > e) current.end = current.start
+                            if (field === "end" && e < s) current.start = current.end
+                          }
+                        } else if (variable.type === "date" || variable.type === "text") {
+                          if (field === "start" && current.start > current.end) current.end = current.start
+                          if (field === "end" && current.end < current.start) current.start = current.end
+                        }
+                      }
+
                       handleUpdateVariable(variable.id, { value: JSON.stringify(current) })
                     }
+
 
                     // Tarih tipi için DatePicker kullan
                     if (variable.type === "date") {
@@ -1150,17 +1201,25 @@ export function VariablesPanel({
           <div className="border-t bg-muted/10">
             {/* Detail Header */}
             <div className="px-4 py-3 border-b bg-muted/20">
-              <div className="flex items-center gap-2">
-                {(() => {
-                  const isSwitch = selectedVariable.filterType === "switch"
-                  const isBetween = selectedVariable.filterType === "between"
-                  const TypeIcon = isSwitch ? ToggleLeft : isBetween ? ArrowLeftRight : variableTypeConfig[selectedVariable.type].icon
-                  const iconColor = isSwitch ? "text-rose-500" : isBetween ? "text-cyan-500" : variableTypeConfig[selectedVariable.type].color
-                  return <TypeIcon className={`h-3.5 w-3.5 ${iconColor}`} />
-                })()}
-                <span className="text-xs font-mono text-muted-foreground">{selectedVariable.name}</span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const isSwitch = selectedVariable.filterType === "switch"
+                    const isBetween = selectedVariable.filterType === "between"
+                    const TypeIcon = isSwitch ? ToggleLeft : isBetween ? ArrowLeftRight : variableTypeConfig[selectedVariable.type].icon
+                    const iconColor = isSwitch ? "text-rose-500" : isBetween ? "text-cyan-500" : variableTypeConfig[selectedVariable.type].color
+                    return <TypeIcon className={`h-3.5 w-3.5 ${iconColor}`} />
+                  })()}
+                  <span className="text-xs font-mono font-medium">{selectedVariable.name}</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-background border border-dashed text-[10px] font-mono text-muted-foreground">
+                  <span className="text-primary/70">{"{{ "}</span>
+                  <span className="text-foreground/80">{selectedVariable.name}</span>
+                  <span className="text-primary/70">{" | sql }}"}</span>
+                </div>
               </div>
             </div>
+
 
             <div className="p-4 space-y-5">
               {/* Değişken Tipi - Açık/Kapalı filtre yönteminde gösterme */}
@@ -1329,12 +1388,20 @@ export function VariablesPanel({
                             value={selectedVariable.betweenStart ? parse(selectedVariable.betweenStart, "yyyyMMdd", new Date()) : undefined}
                             onChange={(date) => {
                               const val = date ? format(date, "yyyyMMdd") : ""
-                              const currentEnd = selectedVariable.betweenEnd || ""
+                              let currentEnd = selectedVariable.betweenEnd || ""
+
+                              // Doğrulama: Bitiş başlangıçtan küçük olamaz
+                              if (val && currentEnd && val > currentEnd) {
+                                currentEnd = val
+                              }
+
                               handleUpdateVariable(selectedVariable.id, {
                                 betweenStart: val,
+                                betweenEnd: currentEnd,
                                 defaultValue: JSON.stringify({ start: val, end: currentEnd })
                               })
                             }}
+
                             placeholder="Başlangıç"
                             size="sm"
                             className="flex-1"
@@ -1345,12 +1412,25 @@ export function VariablesPanel({
                             value={selectedVariable.betweenStart || ""}
                             onChange={(e) => {
                               const val = e.target.value
-                              const currentEnd = selectedVariable.betweenEnd || ""
+                              let currentEnd = selectedVariable.betweenEnd || ""
+
+                              // Doğrulama: Bitiş başlangıçtan küçük olamaz
+                              if (val && currentEnd) {
+                                if (selectedVariable.type === "number") {
+                                  const s = Number(val), eVal = Number(currentEnd)
+                                  if (!isNaN(s) && !isNaN(eVal) && s > eVal) currentEnd = val
+                                } else if (val > currentEnd) {
+                                  currentEnd = val
+                                }
+                              }
+
                               handleUpdateVariable(selectedVariable.id, {
                                 betweenStart: val,
+                                betweenEnd: currentEnd,
                                 defaultValue: JSON.stringify({ start: val, end: currentEnd })
                               })
                             }}
+
                             placeholder="Başlangıç değeri"
                             className="h-8 text-sm"
                           />
@@ -1365,12 +1445,20 @@ export function VariablesPanel({
                             value={selectedVariable.betweenEnd ? parse(selectedVariable.betweenEnd, "yyyyMMdd", new Date()) : undefined}
                             onChange={(date) => {
                               const val = date ? format(date, "yyyyMMdd") : ""
-                              const currentStart = selectedVariable.betweenStart || ""
+                              let currentStart = selectedVariable.betweenStart || ""
+
+                              // Doğrulama: Bitiş başlangıçtan küçük olamaz
+                              if (val && currentStart && val < currentStart) {
+                                currentStart = val
+                              }
+
                               handleUpdateVariable(selectedVariable.id, {
                                 betweenEnd: val,
+                                betweenStart: currentStart,
                                 defaultValue: JSON.stringify({ start: currentStart, end: val })
                               })
                             }}
+
                             placeholder="Bitiş"
                             size="sm"
                             className="flex-1"
@@ -1381,12 +1469,25 @@ export function VariablesPanel({
                             value={selectedVariable.betweenEnd || ""}
                             onChange={(e) => {
                               const val = e.target.value
-                              const currentStart = selectedVariable.betweenStart || ""
+                              let currentStart = selectedVariable.betweenStart || ""
+
+                              // Doğrulama: Bitiş başlangıçtan küçük olamaz
+                              if (val && currentStart) {
+                                if (selectedVariable.type === "number") {
+                                  const eVal = Number(val), s = Number(currentStart)
+                                  if (!isNaN(eVal) && !isNaN(s) && eVal < s) currentStart = val
+                                } else if (val < currentStart) {
+                                  currentStart = val
+                                }
+                              }
+
                               handleUpdateVariable(selectedVariable.id, {
                                 betweenEnd: val,
+                                betweenStart: currentStart,
                                 defaultValue: JSON.stringify({ start: currentStart, end: val })
                               })
                             }}
+
                             placeholder="Bitiş değeri"
                             className="h-8 text-sm"
                           />
