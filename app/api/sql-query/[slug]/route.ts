@@ -45,14 +45,6 @@ export async function POST(
             const incomingValue = body[v.name]
 
             if (incomingValue !== undefined) {
-                if (v.filterType === "switch") {
-                    // Handle boolean or 0/1 for switch
-                    const isTrue = incomingValue === true || incomingValue === "true" || incomingValue === 1 || incomingValue === "1"
-                    return {
-                        ...v,
-                        value: isTrue ? (v.switchTrueValue || "") : (v.switchFalseValue || "")
-                    }
-                }
 
                 if (v.filterType === "between" && typeof incomingValue === "object") {
                     // Handle { BEGIN: "...", END: "..." } -> { start: "...", end: "..." }
@@ -102,16 +94,6 @@ export async function POST(
             }
         })
 
-        // B) Switch variables must ALWAYS be present in body (User Rule), ignoring defaults
-        variables.filter(v => v.filterType === "switch").forEach(v => {
-            if (body[v.name] === undefined) {
-                allMissing.set(v.name, {
-                    name: v.name,
-                    label: v.label,
-                    type: v.type
-                })
-            }
-        })
 
         if (allMissing.size > 0) {
             const missingList = Array.from(allMissing.values())
@@ -121,12 +103,10 @@ export async function POST(
                 error: "Zorunlu alanlar eksik",
                 message: `Aşağıdaki zorunlu alanlar için değer sağlanmadı: ${missingLabels}. Lütfen bu alanları gönderilen JSON verisine ekleyin.`,
                 missing_fields: missingList.map(v => {
-                    // Fix: Report switch variables as "bool" instead of "text"
-                    const isSwitch = variables.find(original => original.name === v.name)?.filterType === "switch"
                     return {
                         key: v.name,
                         label: v.label,
-                        type: isSwitch ? "bool" : v.type
+                        type: v.type
                     }
                 })
             }, { status: 400 })

@@ -4,7 +4,7 @@ sql: |-
   FROM ACCOUNTS
   WHERE {{ACCOUNT_ID |eq}}
   AND {{SOURCE | eq}}
-  AND {{CREATED_AT | range(end_offset=1)}}
+  AND {{CREATED_AT | between(end_offset=1)}}
 variables:
   - id: var_1766260879266_ACCOUNT_ID
     name: ACCOUNT_ID
@@ -16,8 +16,6 @@ variables:
     required: true
     valuesSource: custom
     customValues: ""
-    switchTrueValue: ""
-    switchFalseValue: ""
     value: ""
   - id: var_1766262645410_SOURCE
     name: SOURCE
@@ -34,8 +32,6 @@ variables:
       3, değer 3
       4, değer 4
       5, değer 5
-    switchTrueValue: ""
-    switchFalseValue: ""
     value: ""
   - id: var_1766317206659_CREATED_AT
     name: CREATED_AT
@@ -48,7 +44,5 @@ variables:
     required: true
     valuesSource: custom
     customValues: ""
-    switchTrueValue: ""
-    switchFalseValue: ""
     betweenStart: "20251222"
     betweenEnd: "20251228"

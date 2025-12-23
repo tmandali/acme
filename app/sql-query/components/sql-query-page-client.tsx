@@ -21,7 +21,6 @@ import {
     Download,
     Upload,
     Settings2,
-    GripVertical,
     Copy,
     Check,
 } from "lucide-react"
@@ -35,7 +34,7 @@ import { SQLEditor } from "./sql-editor"
 // Tipler ve Veriler
 import type { Variable, QueryFile } from "../lib/types"
 import { sampleSchema, sampleResults } from "../lib/data"
-import { parseDefaultValues, processJinjaTemplate } from "../lib/utils"
+import { processJinjaTemplate } from "../lib/utils"
 
 interface SQLQueryPageClientProps {
     initialData?: QueryFile
@@ -212,7 +211,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
             ])
 
             // {{ ... }} içindeki değişkenleri bul (Fonksiyonel kolon ismi ve filtre argümanları desteği ile)
-            // Örn: {{ VAR('COL') | range(offset=1) }}
+            // Örn: {{ VAR('COL') | between(offset=1) }}
             const expressionMatches = query.matchAll(/\{\{\s*([\w.]+)(?:\((?:['"]?)(.*?)(?:['"]?)\))?(?:\s*\|\s*[\w]+(?:\(.*?\))?)*\s*\}\}/g)
 
             for (const match of expressionMatches) {
@@ -598,104 +597,105 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                                 <div className="font-semibold mb-2 text-muted-foreground">Example Request (cURL)</div>
                                                 <div className="relative group">
                                                     <pre className="bg-zinc-100 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 p-4 rounded-md font-mono text-xs overflow-x-auto whitespace-pre border border-zinc-200 dark:border-zinc-800">
-                                                        <code>{`curl -X POST http://localhost:3000/sql-query/${slug || 'api/execute'} \\
+                                                        <code>{(() => {
+                                                            const renderVariables = (vars: Variable[]) => {
+                                                                return vars.map(v => {
+                                                                    const val = v.value || v.defaultValue
+                                                                    if (v.filterType === 'between') {
+                                                                        const formatDate = (d: any) => {
+                                                                            const s = String(d || "")
+                                                                            if (s && /^\d{8}$/.test(s)) {
+                                                                                return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+                                                                            }
+                                                                            return d || ""
+                                                                        }
+
+                                                                        let start = v.betweenStart || ""
+                                                                        let end = v.betweenEnd || ""
+
+                                                                        if (val) {
+                                                                            try {
+                                                                                const parsed = JSON.parse(val)
+                                                                                if (parsed && typeof parsed === 'object') {
+                                                                                    if (parsed.start) start = parsed.start
+                                                                                    if (parsed.end) end = parsed.end
+                                                                                }
+                                                                            } catch { }
+                                                                        }
+
+                                                                        const formatted = {
+                                                                            begin: formatDate(start),
+                                                                            end: formatDate(end)
+                                                                        }
+                                                                        return `\n      "${v.name}": ${JSON.stringify(formatted)}`
+                                                                    }
+                                                                    if (v.filterType === 'dropdown' && v.multiSelect) {
+                                                                        return `\n      "${v.name}": ${val || '[]'}`
+                                                                    }
+                                                                    if (v.type === 'number') {
+                                                                        return `\n      "${v.name}": ${val || 'null'}`
+                                                                    }
+                                                                    return `\n      "${v.name}": "${val}"`
+                                                                }).join(',')
+                                                            }
+                                                            const curlBody = `curl -X POST http://localhost:3000/sql-query/${slug || 'api/execute'} \\
   -H "Content-Type: application/json" \\
   -d '{
-    "variables": {${variables.map(v => {
-                                                            const val = v.value || v.defaultValue
-                                                            if (v.filterType === 'switch') {
-                                                                return `\n      "${v.name}": ${val === v.switchTrueValue}`
-                                                            }
-                                                            if (v.filterType === 'between') {
-                                                                const formatDate = (d: any) => {
-                                                                    const s = String(d || "")
-                                                                    if (s && /^\d{8}$/.test(s)) {
-                                                                        return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
-                                                                    }
-                                                                    return d || ""
-                                                                }
-
-                                                                let start = v.betweenStart || ""
-                                                                let end = v.betweenEnd || ""
-
-                                                                if (val) {
-                                                                    try {
-                                                                        const parsed = JSON.parse(val)
-                                                                        if (parsed && typeof parsed === 'object') {
-                                                                            if (parsed.start) start = parsed.start
-                                                                            if (parsed.end) end = parsed.end
-                                                                        }
-                                                                    } catch {
-                                                                        // Not JSON object
-                                                                    }
-                                                                }
-
-                                                                const formatted = {
-                                                                    begin: formatDate(start),
-                                                                    end: formatDate(end)
-                                                                }
-                                                                return `\n      "${v.name}": ${JSON.stringify(formatted)}`
-                                                            }
-                                                            if (v.filterType === 'dropdown' && v.multiSelect) {
-                                                                return `\n      "${v.name}": ${val || '[]'}`
-                                                            }
-                                                            if (v.type === 'number') {
-                                                                return `\n      "${v.name}": ${val || 'null'}`
-                                                            }
-                                                            return `\n      "${v.name}": "${val}"`
-                                                        }).join(',')}
+    "variables": {${renderVariables(variables)}
     }
-  }'`}</code>
+  }'`
+                                                            return curlBody
+                                                        })()}</code>
                                                     </pre>
                                                     <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        <CopyButton text={`curl -X POST http://localhost:3000/sql-query/${slug || 'api/execute'} \\
+                                                        <CopyButton text={(() => {
+                                                            const renderVariables = (vars: Variable[]) => {
+                                                                return vars.map(v => {
+                                                                    const val = v.value || v.defaultValue
+                                                                    if (v.filterType === 'between') {
+                                                                        const formatDate = (d: any) => {
+                                                                            const s = String(d || "")
+                                                                            if (s && /^\d{8}$/.test(s)) {
+                                                                                return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+                                                                            }
+                                                                            return d || ""
+                                                                        }
+
+                                                                        let start = v.betweenStart || ""
+                                                                        let end = v.betweenEnd || ""
+
+                                                                        if (val) {
+                                                                            try {
+                                                                                const parsed = JSON.parse(val)
+                                                                                if (parsed && typeof parsed === 'object') {
+                                                                                    if (parsed.start) start = parsed.start
+                                                                                    if (parsed.end) end = parsed.end
+                                                                                }
+                                                                            } catch { }
+                                                                        }
+
+                                                                        const formatted = {
+                                                                            begin: formatDate(start),
+                                                                            end: formatDate(end)
+                                                                        }
+                                                                        return `\n      "${v.name}": ${JSON.stringify(formatted)}`
+                                                                    }
+                                                                    if (v.filterType === 'dropdown' && v.multiSelect) {
+                                                                        return `\n      "${v.name}": ${val || '[]'}`
+                                                                    }
+                                                                    if (v.type === 'number') {
+                                                                        return `\n      "${v.name}": ${val || 'null'}`
+                                                                    }
+                                                                    return `\n      "${v.name}": "${val}"`
+                                                                }).join(',')
+                                                            }
+                                                            return `curl -X POST http://localhost:3000/sql-query/${slug || 'api/execute'} \\
   -H "Content-Type: application/json" \\
   -d '{
-    "variables": {${variables.map(v => {
-                                                            const val = v.value || v.defaultValue
-                                                            if (v.filterType === 'switch') {
-                                                                return `\n      "${v.name}": ${val === v.switchTrueValue}`
-                                                            }
-                                                            if (v.filterType === 'between') {
-                                                                const formatDate = (d: any) => {
-                                                                    const s = String(d || "")
-                                                                    if (s && /^\d{8}$/.test(s)) {
-                                                                        return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
-                                                                    }
-                                                                    return d || ""
-                                                                }
-
-                                                                let start = v.betweenStart || ""
-                                                                let end = v.betweenEnd || ""
-
-                                                                if (val) {
-                                                                    try {
-                                                                        const parsed = JSON.parse(val)
-                                                                        if (parsed && typeof parsed === 'object') {
-                                                                            if (parsed.start) start = parsed.start
-                                                                            if (parsed.end) end = parsed.end
-                                                                        }
-                                                                    } catch {
-                                                                        // Not JSON object
-                                                                    }
-                                                                }
-
-                                                                const formatted = {
-                                                                    begin: formatDate(start),
-                                                                    end: formatDate(end)
-                                                                }
-                                                                return `\n      "${v.name}": ${JSON.stringify(formatted)}`
-                                                            }
-                                                            if (v.filterType === 'dropdown' && v.multiSelect) {
-                                                                return `\n      "${v.name}": ${val || '[]'}`
-                                                            }
-                                                            if (v.type === 'number') {
-                                                                return `\n      "${v.name}": ${val || 'null'}`
-                                                            }
-                                                            return `\n      "${v.name}": "${val}"`
-                                                        }).join(',')}
+    "variables": {${renderVariables(variables)}
     }
-  }'`} />
+  }'`
+                                                        })()} />
                                                     </div>
                                                 </div>
                                             </div>

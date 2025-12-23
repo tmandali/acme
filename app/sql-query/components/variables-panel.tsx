@@ -37,7 +37,6 @@ import {
   Database,
   ListFilter,
   Check,
-  ToggleLeft,
   ArrowLeftRight,
   CalendarIcon,
 } from "lucide-react"
@@ -725,7 +724,7 @@ export function VariablesPanel({
               <div className="flex items-center gap-2 px-2 py-1.5 bg-muted/40 rounded border border-dashed text-[10px] font-mono text-muted-foreground">
                 <span className="text-primary">{"{{ "}</span>
                 <span>TARİH</span>
-                <span className="text-primary">{" | range }}"}</span>
+                <span className="text-primary">{" | between }}"}</span>
               </div>
             </div>
             <p className="text-[10px] text-muted-foreground text-center mt-3 px-4 italic">
@@ -741,11 +740,10 @@ export function VariablesPanel({
               .filter((v) => usedVariablesInQuery.includes(v.name))
               .map((variable) => {
                 // Açık/Kapalı ve Aralık filtre yöntemi için özel ikon ve renk
-                const isSwitch = variable.filterType === "switch"
                 const isBetween = variable.filterType === "between"
                 const typeConfig = variableTypeConfig[variable.type]
-                const TypeIcon = isSwitch ? ToggleLeft : isBetween ? ArrowLeftRight : typeConfig.icon
-                const iconColor = isSwitch ? "text-rose-500" : isBetween ? "text-cyan-500" : typeConfig.color
+                const TypeIcon = isBetween ? ArrowLeftRight : typeConfig.icon
+                const iconColor = isBetween ? "text-cyan-500" : typeConfig.color
 
                 // Değer girişi için uygun input'u render et
                 const renderValueInput = () => {
@@ -1074,35 +1072,6 @@ export function VariablesPanel({
                   )
                 }
 
-                // Switch filtre yöntemi için özel layout (label ve switch aynı satırda)
-                if (variable.filterType === "switch") {
-                  // Aktif değeri al (value yoksa defaultValue)
-                  const activeSwitchValue = variable.value !== undefined && variable.value !== ""
-                    ? variable.value
-                    : variable.defaultValue
-                  // Switch değerleri boşsa, toggle durumunu kontrol edemeyiz
-                  const isOn = variable.switchTrueValue
-                    ? activeSwitchValue === variable.switchTrueValue
-                    : false
-                  return (
-                    <div key={variable.id} className="flex items-center justify-between py-1">
-                      <div className="flex items-center gap-2">
-                        <TypeIcon className={`h-3.5 w-3.5 ${iconColor}`} />
-                        <Label className="text-sm font-medium">{variable.label}</Label>
-                      </div>
-                      <Switch
-                        checked={isOn}
-                        onCheckedChange={(checked) => {
-                          // Sadece tanımlı değerler varsa kullan, yoksa boş string
-                          const val = checked
-                            ? (variable.switchTrueValue || "")
-                            : (variable.switchFalseValue || "")
-                          handleUpdateVariable(variable.id, { value: val })
-                        }}
-                      />
-                    </div>
-                  )
-                }
 
                 return (
                   <div key={variable.id} className="space-y-1.5">
@@ -1128,11 +1097,10 @@ export function VariablesPanel({
           <div className="p-3 space-y-1.5">
             {variables.map((variable) => {
               // Açık/Kapalı ve Aralık filtre yöntemi için özel ikon ve renk
-              const isSwitch = variable.filterType === "switch"
               const isBetween = variable.filterType === "between"
               const typeConfig = variableTypeConfig[variable.type]
-              const TypeIcon = isSwitch ? ToggleLeft : isBetween ? ArrowLeftRight : typeConfig.icon
-              const iconColor = isSwitch ? "text-rose-500" : isBetween ? "text-cyan-500" : typeConfig.color
+              const TypeIcon = isBetween ? ArrowLeftRight : typeConfig.icon
+              const iconColor = isBetween ? "text-cyan-500" : typeConfig.color
               const isUsedInQuery = usedVariablesInQuery.includes(variable.name)
               return (
                 <div
@@ -1211,10 +1179,9 @@ export function VariablesPanel({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   {(() => {
-                    const isSwitch = selectedVariable.filterType === "switch"
                     const isBetween = selectedVariable.filterType === "between"
-                    const TypeIcon = isSwitch ? ToggleLeft : isBetween ? ArrowLeftRight : variableTypeConfig[selectedVariable.type].icon
-                    const iconColor = isSwitch ? "text-rose-500" : isBetween ? "text-cyan-500" : variableTypeConfig[selectedVariable.type].color
+                    const TypeIcon = isBetween ? ArrowLeftRight : variableTypeConfig[selectedVariable.type].icon
+                    const iconColor = isBetween ? "text-cyan-500" : variableTypeConfig[selectedVariable.type].color
                     return <TypeIcon className={`h-3.5 w-3.5 ${iconColor}`} />
                   })()}
                   <span className="text-xs font-mono font-medium">{selectedVariable.name}</span>
@@ -1230,43 +1197,39 @@ export function VariablesPanel({
 
             <div className="p-4 space-y-5">
               {/* Değişken Tipi - Açık/Kapalı filtre yönteminde gösterme */}
-              {selectedVariable.filterType !== "switch" && (
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Değişken Tipi</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(Object.entries(variableTypeConfig) as [Variable["type"], typeof variableTypeConfig[Variable["type"]]][]).map(([type, config]) => {
-                      const Icon = config.icon
-                      const isSelected = selectedVariable.type === type
-                      return (
-                        <button
-                          key={type}
-                          onClick={() => {
-                            // Tip değiştiğinde değerleri sıfırla
-                            if (selectedVariable.type !== type) {
-                              handleUpdateVariable(selectedVariable.id, {
-                                type,
-                                defaultValue: "",
-                                switchTrueValue: "",
-                                switchFalseValue: "",
-                              })
-                            }
-                          }}
-                          className={`
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Değişken Tipi</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(Object.entries(variableTypeConfig) as [Variable["type"], typeof variableTypeConfig[Variable["type"]]][]).map(([type, config]) => {
+                    const Icon = config.icon
+                    const isSelected = selectedVariable.type === type
+                    return (
+                      <button
+                        key={type}
+                        onClick={() => {
+                          // Tip değiştiğinde değerleri sıfırla
+                          if (selectedVariable.type !== type) {
+                            handleUpdateVariable(selectedVariable.id, {
+                              type,
+                              defaultValue: "",
+                            })
+                          }
+                        }}
+                        className={`
                             flex items-center gap-2 p-2.5 rounded-md border transition-all text-left
                             ${isSelected
-                              ? 'border-foreground/20 bg-muted'
-                              : 'border-transparent hover:bg-muted/50'
-                            }
+                            ? 'border-foreground/20 bg-muted'
+                            : 'border-transparent hover:bg-muted/50'
+                          }
                           `}
-                        >
-                          <Icon className={`h-3.5 w-3.5 ${config.color}`} />
-                          <span className="text-xs font-medium">{config.label}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
+                      >
+                        <Icon className={`h-3.5 w-3.5 ${config.color}`} />
+                        <span className="text-xs font-medium">{config.label}</span>
+                      </button>
+                    )
+                  })}
                 </div>
-              )}
+              </div>
 
               {/* Etiket */}
               <div className="space-y-2">
@@ -1326,59 +1289,6 @@ export function VariablesPanel({
                 </div>
               </div>
 
-              {/* Switch Değerleri - Sadece switch filtre yöntemi için */}
-              {selectedVariable.filterType === "switch" && (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">Varsayılan Durum</Label>
-                    <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                      <span className="text-sm font-medium">
-                        {selectedVariable.switchTrueValue && selectedVariable.defaultValue === selectedVariable.switchTrueValue ? "Açık" : "Kapalı"}
-                      </span>
-                      <Switch
-                        checked={selectedVariable.switchTrueValue ? selectedVariable.defaultValue === selectedVariable.switchTrueValue : false}
-                        onCheckedChange={(checked) => {
-                          const value = checked
-                            ? (selectedVariable.switchTrueValue || "")
-                            : (selectedVariable.switchFalseValue || "")
-                          handleUpdateVariable(selectedVariable.id, { defaultValue: value })
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">SQL Değerleri</Label>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-16 shrink-0">
-                          <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Açık:</span>
-                        </div>
-                        <Input
-                          value={selectedVariable.switchTrueValue || ""}
-                          onChange={(e) => handleUpdateVariable(selectedVariable.id, { switchTrueValue: e.target.value })}
-                          placeholder="AND Field=1"
-                          className="h-8 text-sm font-mono"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="w-16 shrink-0">
-                          <span className="text-xs font-medium text-rose-600 dark:text-rose-400">Kapalı:</span>
-                        </div>
-                        <Input
-                          value={selectedVariable.switchFalseValue || ""}
-                          onChange={(e) => handleUpdateVariable(selectedVariable.id, { switchFalseValue: e.target.value })}
-                          placeholder="AND Field=0"
-                          className="h-8 text-sm font-mono"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">
-                    Switch açık/kapalı olduğunda SQL&apos;e gönderilecek değerler
-                  </p>
-                </div>
-              )}
 
               {/* Between Varsayılan Değerleri - Sadece between filtre yöntemi için */}
               {selectedVariable.filterType === "between" && (
@@ -1508,8 +1418,8 @@ export function VariablesPanel({
                 </div>
               )}
 
-              {/* Çoklu Seçim - Switch ve Between filtre yönteminde gösterme */}
-              {selectedVariable.filterType !== "switch" && selectedVariable.filterType !== "between" && (
+              {/* Çoklu Seçim - Between filtre yönteminde gösterme */}
+              {selectedVariable.filterType !== "between" && (
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">Seçim Sayısı</Label>
                   <div className="flex gap-2">
@@ -1547,8 +1457,8 @@ export function VariablesPanel({
                 </div>
               )}
 
-              {/* Varsayılan Değer - Switch ve Between filtre yönteminde gösterme */}
-              {selectedVariable.filterType !== "switch" && selectedVariable.filterType !== "between" && (
+              {/* Varsayılan Değer - Between filtre yönteminde gösterme */}
+              {selectedVariable.filterType !== "between" && (
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">Varsayılan Değer</Label>
 
@@ -1609,21 +1519,20 @@ export function VariablesPanel({
                 </div>
               )}
 
-              {/* Zorunlu - Switch filtre yönteminde gösterme */}
-              {selectedVariable.filterType !== "switch" && (
-                <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-transparent hover:bg-muted/50 transition-colors">
-                  <div>
-                    <div className="text-sm font-medium">Her zaman bir değer gerektirir</div>
-                    <p className="text-[11px] text-muted-foreground">
-                      Etkinleştirildiğinde, insanlar değeri değiştirebilir veya sıfırlayabilir, ancak tamamen silemezler.
-                    </p>
-                  </div>
-                  <Switch
-                    checked={selectedVariable.required}
-                    onCheckedChange={(checked) => handleUpdateVariable(selectedVariable.id, { required: checked })}
-                  />
+              {/* Zorunlu */}
+              <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-transparent hover:bg-muted/50 transition-colors">
+                <div>
+                  <div className="text-sm font-medium">Her zaman bir değer gerektirir</div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Etkinleştirildiğinde, insanlar değeri değiştirebilir veya sıfırlayabilir, ancak tamamen silemezler.
+                  </p>
                 </div>
-              )}
+                <Switch
+                  checked={selectedVariable.required}
+                  onCheckedChange={(checked) => handleUpdateVariable(selectedVariable.id, { required: checked })}
+                />
+              </div>
+
             </div>
           </div>
         )}

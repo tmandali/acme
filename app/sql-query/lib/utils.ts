@@ -50,10 +50,10 @@ export const variableTypeConfig: Record<Variable["type"], { icon: React.ElementT
 }
 
 // Filtre tipi config
+// Filtre tipi config
 export const filterTypeConfig: Record<Variable["filterType"], { icon: React.ElementType; label: string; description: string }> = {
   dropdown: { icon: ChevronDown, label: "Açılır liste", description: "Önceden tanımlanmış seçeneklerden seç" },
   input: { icon: TextCursorInput, label: "Girdi kutusu", description: "Serbest metin girişi" },
-  switch: { icon: ToggleLeft, label: "Açık/Kapalı", description: "İki durumlu toggle switch" },
   between: { icon: ArrowLeftRight, label: "Aralık", description: "Başlangıç ve bitiş değeri arasında filtrele" },
 }
 
@@ -66,15 +66,6 @@ export function getColumnIcon(type: string, hasFk?: boolean) {
 // Nunjucks ortamını yapılandır
 const nunjucksEnv = nunjucks.configure({ autoescape: false });
 
-const formatValueWithType = (val: any) => {
-  if (val === undefined || val === null || val === '') return 'NULL';
-  if (typeof val === 'number') return val;
-  if (Array.isArray(val)) {
-    const joined = val.map(v => typeof v === 'number' ? v : `'${v}'`).join(', ');
-    return joined;
-  }
-  return `'${val}'`;
-}
 
 // SQL için özel filtreler ekle
 nunjucksEnv.addFilter('quote', (val) => {
@@ -95,7 +86,7 @@ nunjucksEnv.addFilter('sql', (val) => {
   return `'${val}'`;
 });
 
-// Değerin bir aralık (range) nesnesi olup olmadığını kontrol et
+// Değerin bir aralık nesnesi olup olmadığını kontrol et
 const isRange = (val: any) => val && typeof val === 'object' && ('start' in val || 'begin' in val);
 
 // Aralığın parçalarına erişim
@@ -257,7 +248,7 @@ export function processJinjaTemplate(sqlQuery: string, variables: Variable[]): {
   variables.forEach(variable => {
     const activeValue = variable.value || variable.defaultValue
 
-    if (activeValue || variable.filterType === "between" || variable.filterType === "switch") {
+    if (activeValue || variable.filterType === "between") {
       let rawVal: any = activeValue
       let sqlVal = ""
 
@@ -271,35 +262,32 @@ export function processJinjaTemplate(sqlQuery: string, variables: Variable[]): {
         return v;
       };
 
-      if (variable.filterType === "switch") {
-        rawVal = processValueType(activeValue)
-        sqlVal = String(rawVal)
-      } else if (variable.filterType === "between") {
-        let range: { start: string, end: string } = { start: "", end: "" }
+      if (variable.filterType === "between") {
+        let betweenValues: { start: string, end: string } = { start: "", end: "" }
         if (variable.value) {
           try {
             const parsed = JSON.parse(variable.value)
             if (parsed && typeof parsed === 'object') {
-              range.start = parsed.start || ""
-              range.end = parsed.end || ""
+              betweenValues.start = parsed.start || ""
+              betweenValues.end = parsed.end || ""
             }
           } catch (e) { }
         }
-        if ((!range.start || !range.end) && variable.defaultValue) {
+        if ((!betweenValues.start || !betweenValues.end) && variable.defaultValue) {
           try {
             const defaultParsed = JSON.parse(variable.defaultValue)
             if (defaultParsed && typeof defaultParsed === 'object') {
-              range.start = range.start || defaultParsed.start || ""
-              range.end = range.end || defaultParsed.end || ""
+              betweenValues.start = betweenValues.start || defaultParsed.start || ""
+              betweenValues.end = betweenValues.end || defaultParsed.end || ""
             }
           } catch (e) { }
         }
-        if (!range.start) range.start = variable.betweenStart || ""
-        if (!range.end) range.end = variable.betweenEnd || ""
+        if (!betweenValues.start) betweenValues.start = variable.betweenStart || ""
+        if (!betweenValues.end) betweenValues.end = variable.betweenEnd || ""
 
 
-        const start = processValueType(range.start);
-        const end = processValueType(range.end);
+        const start = processValueType(betweenValues.start);
+        const end = processValueType(betweenValues.end);
 
         rawVal = {
           start: start,
@@ -344,8 +332,8 @@ export function processJinjaTemplate(sqlQuery: string, variables: Variable[]): {
 
   try {
     // Nunjucks (Jinja) etiketlerini akıllı filtrelere dönüştür
-    // Hem {{ VAR('COL') | range }} hem de {{ VAR | range }} yazımlarını destekler.
-    // Sadece SQL karşılaştırma filtrelerini (eq, ne, range vb.) hedef alır.
+    // Hem {{ VAR('COL') | between }} hem de {{ VAR | between }} yazımlarını destekler.
+    // Sadece SQL karşılaştırma filtrelerini (eq, ne, between vb.) hedef alır.
     const smartFilters = 'eq|ne|gt|lt|gte|ge|lte|le|like|between';
     const processedRawQuery = sqlQuery.replace(
       new RegExp(`\\{\\{\\s*(\\w+)(?:\\((['"]?)(.*?)\\2\\))?\\s*\\|\\s*(${smartFilters})(?:\\s*\\((.*?)\\))?(.*?)\\}\\}`, 'g'),
