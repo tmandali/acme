@@ -502,6 +502,9 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                                     if (v.filterType === 'switch') {
                                                         return `\n      "${v.name}": ${val === v.switchTrueValue}`
                                                     }
+                                                    if (v.type === 'number') {
+                                                        return `\n      "${v.name}": ${val || 'null'}`
+                                                    }
                                                     return `\n      "${v.name}": "${val}"`
                                                 }).join(',')}
     }
