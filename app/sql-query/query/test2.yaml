@@ -2,24 +2,10 @@ name: Aktif Hesaplar Listesi
 sql: |-
   SELECT *
   FROM ACCOUNTS
-  WHERE ACCOUNT_ID={{ACCOUNT_ID}}
-  AND SOURCE IN {{SOURCE}}
-  AND {{STATUS}}
-  AND CREATED_AT BETWEEN {{CREATED_AT}}
+  WHERE {{ACCOUNT_ID |eq}}
+  AND {{SOURCE | eq}}
+  AND {{CREATED_AT | range(end_offset=1)}}
 variables:
-  - id: var_1766260950658_STATUS
-    name: STATUS
-    type: text
-    label: Aktif/Pasif Hesaplar
-    filterType: switch
-    multiSelect: false
-    defaultValue: STATUS = 1
-    required: false
-    valuesSource: custom
-    customValues: ""
-    switchTrueValue: STATUS = 1
-    switchFalseValue: STATUS = 0
-    value: ""
   - id: var_1766260879266_ACCOUNT_ID
     name: ACCOUNT_ID
     type: number

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
     // Filter for requests to /sql-query/*
     if (request.nextUrl.pathname.startsWith('/sql-query/')) {
         // If it's a POST request, rewrite to the API route
