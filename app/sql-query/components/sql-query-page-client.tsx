@@ -249,7 +249,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                 for (const varName of foundVariables) {
                     if (!existingNames.includes(varName)) {
                         newVariables.push({
-                            id: `var_${Date.now()}_${varName}`,
+                            id: `var_auto_${varName}`,
                             name: varName,
                             type: "text",
                             label: varName,
@@ -265,14 +265,34 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                 }
 
                 if (newVariables.length > 0) {
+                    // İlk yeni değişkeni dışarıya taşıyıp useEffect sonunda işlem yapacağız
+                    const firstNew = newVariables[0]
+                    // Local selection trigger
+                    latestAddedVarRef.current = firstNew
                     return [...prev, ...newVariables]
                 }
                 return prev
             })
         }, 500)
 
-        return () => clearTimeout(timeoutId)
     }, [query])
+
+    // Yeni eklenen kriteri seçme ve paneli açma mantığı
+    const latestAddedVarRef = useRef<Variable | null>(null)
+    useEffect(() => {
+        if (latestAddedVarRef.current) {
+            const varToSelect = latestAddedVarRef.current
+            latestAddedVarRef.current = null
+
+            // Eğer zaten bir seçim varsa ve paneli düzenliyorsa, otomatik odaklanma yapma
+            // (kullanıcının çalışmasını bölmemek için)
+            if (!selectedVariable) {
+                setSelectedVariable(varToSelect)
+                setVariablesPanelOpen(true)
+                setSchemaPanelOpen(false)
+            }
+        }
+    }, [variables, selectedVariable])
 
 
     // Jinja template işleme fonksiyonu - artık utils'den geliyor, burada sarmalıyoruz

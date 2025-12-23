@@ -459,6 +459,13 @@ export function VariablesPanel({
   const [jsonError, setJsonError] = useState<string | null>(null)
   const [isEditMode, setIsEditMode] = useState(false)
 
+  // Bir değişken seçildiğinde otomatik olarak düzenleme moduna geç
+  useEffect(() => {
+    if (selectedVariable) {
+      setIsEditMode(true)
+    }
+  }, [selectedVariable])
+
   // SQL'de kullanılan değişkenleri bul (Nunjucks uyumlu)
   const getUsedVariablesInQuery = useCallback(() => {
     const foundVariables: string[] = []
