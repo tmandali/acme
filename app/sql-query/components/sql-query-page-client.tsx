@@ -59,6 +59,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     const [sidePanelWidth, setSidePanelWidth] = useState(320) // Shared width for both panels
     const [isResizingPanel, setIsResizingPanel] = useState(false)
     const [activeTab, setActiveTab] = useState<"edit" | "preview" | "api">("edit")
+    const [mounted, setMounted] = useState(false)
     const containerRef = useRef<HTMLDivElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const queryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -190,6 +191,10 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         })
 
         return () => observer.disconnect()
+    }, [])
+
+    useEffect(() => {
+        setMounted(true)
     }, [])
 
     // SQL'deki Nunjucks (Jinja) pattern'lerinden otomatik kriter oluştur (debounced)
@@ -516,26 +521,28 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                             onValueChange={(val) => setActiveTab(val as "edit" | "preview" | "api")}
                                             className="w-auto"
                                         >
-                                            <TabsList className="inline-flex h-9 p-1 bg-muted rounded-lg">
-                                                <TabsTrigger
-                                                    value="edit"
-                                                    className="px-3 text-xs rounded-md text-muted-foreground data-[state=active]:bg-background dark:data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm hover:text-foreground hover:bg-background/50 transition-all font-medium"
-                                                >
-                                                    Query
-                                                </TabsTrigger>
-                                                <TabsTrigger
-                                                    value="preview"
-                                                    className="px-3 text-xs rounded-md text-muted-foreground data-[state=active]:bg-background dark:data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm hover:text-foreground hover:bg-background/50 transition-all font-medium"
-                                                >
-                                                    SQL
-                                                </TabsTrigger>
-                                                <TabsTrigger
-                                                    value="api"
-                                                    className="px-3 text-xs rounded-md text-muted-foreground data-[state=active]:bg-background dark:data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm hover:text-foreground hover:bg-background/50 transition-all font-medium"
-                                                >
-                                                    API
-                                                </TabsTrigger>
-                                            </TabsList>
+                                            {mounted && (
+                                                <TabsList className="inline-flex h-9 p-1 bg-muted rounded-lg">
+                                                    <TabsTrigger
+                                                        value="edit"
+                                                        className="px-3 text-xs rounded-md text-muted-foreground data-[state=active]:bg-background dark:data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm hover:text-foreground hover:bg-background/50 transition-all font-medium"
+                                                    >
+                                                        Query
+                                                    </TabsTrigger>
+                                                    <TabsTrigger
+                                                        value="preview"
+                                                        className="px-3 text-xs rounded-md text-muted-foreground data-[state=active]:bg-background dark:data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm hover:text-foreground hover:bg-background/50 transition-all font-medium"
+                                                    >
+                                                        SQL
+                                                    </TabsTrigger>
+                                                    <TabsTrigger
+                                                        value="api"
+                                                        className="px-3 text-xs rounded-md text-muted-foreground data-[state=active]:bg-background dark:data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm hover:text-foreground hover:bg-background/50 transition-all font-medium"
+                                                    >
+                                                        API
+                                                    </TabsTrigger>
+                                                </TabsList>
+                                            )}
                                         </Tabs>
                                         <div className="flex items-center p-1 bg-muted rounded-lg h-9">
                                             <Button

@@ -3,18 +3,7 @@
 import * as React from "react"
 import {
   Home,
-  Calculator,
-  ShoppingCart,
   TrendingUp,
-  Package,
-  Landmark,
-  Factory,
-  BadgeCheck,
-  FolderKanban,
-  HeadphonesIcon,
-  Users,
-  Settings,
-  Cog,
   ChevronDown,
   Building2,
   Database,
@@ -56,79 +45,9 @@ const data = {
       icon: Home,
     },
     {
-      title: "Accounting",
-      url: "#",
-      icon: Calculator,
-      isActive: true,
-      items: [
-        {
-          title: "Credit",
-          url: "/payables",
-        },
-        {
-          title: "Debit",
-          url: "/accounts-payable",
-        },
-        {
-          title: "Financial Reports",
-          url: "/financial-reports",
-        },
-      ],
-    },
-    {
-      title: "Buying",
-      url: "/buying",
-      icon: ShoppingCart,
-    },
-    {
       title: "Selling",
       url: "/selling",
       icon: TrendingUp,
-    },
-    {
-      title: "Stock",
-      url: "/stock",
-      icon: Package,
-    },
-    {
-      title: "Assets",
-      url: "/assets",
-      icon: Landmark,
-    },
-    {
-      title: "Manufacturing",
-      url: "/manufacturing",
-      icon: Factory,
-    },
-    {
-      title: "Quality",
-      url: "/quality",
-      icon: BadgeCheck,
-    },
-    {
-      title: "Projects",
-      url: "/projects",
-      icon: FolderKanban,
-    },
-    {
-      title: "Support",
-      url: "/support",
-      icon: HeadphonesIcon,
-    },
-    {
-      title: "CRM",
-      url: "/crm",
-      icon: Users,
-    },
-    {
-      title: "Settings",
-      url: "/settings",
-      icon: Settings,
-    },
-    {
-      title: "ERPNext Settings",
-      url: "/erpnext-settings",
-      icon: Cog,
     },
     {
       title: "SQL Query",
@@ -140,50 +59,57 @@ const data = {
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { selectedCompany, setSelectedCompany, currentCompany, companies } = useCompany()
+  const [mounted, setMounted] = React.useState(false)
+
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
 
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <SidebarMenuButton size="lg" className="cursor-pointer">
-                  <div className="flex aspect-square size-8 items-center justify-center rounded-md bg-foreground text-background text-sm font-medium">
-                    <Building2 className="h-4 w-4" />
-                  </div>
-                  <div className="flex flex-col gap-0.5 leading-none">
-                    <span className="font-medium text-sm tracking-tight">ACME</span>
-                    <span className="text-[11px] text-muted-foreground truncate max-w-[140px]">
-                      {currentCompany?.name}
-                    </span>
-                  </div>
-                  <ChevronDown className="ml-auto h-4 w-4 opacity-40" />
-                </SidebarMenuButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent 
-                className="w-[240px]" 
-                align="start" 
-                side="bottom"
-                sideOffset={4}
-              >
-                <DropdownMenuRadioGroup value={selectedCompany} onValueChange={setSelectedCompany}>
-                  {companies.map((company) => (
-                    <DropdownMenuRadioItem
-                      key={company.id}
-                      value={company.id}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="flex h-6 w-6 items-center justify-center rounded bg-muted text-[10px] font-medium">
-                          {company.code}
+            {mounted && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <SidebarMenuButton size="lg" className="cursor-pointer">
+                    <div className="flex aspect-square size-8 items-center justify-center rounded-md bg-foreground text-background text-sm font-medium">
+                      <Building2 className="h-4 w-4" />
+                    </div>
+                    <div className="flex flex-col gap-0.5 leading-none">
+                      <span className="font-medium text-sm tracking-tight">ACME</span>
+                      <span className="text-[11px] text-muted-foreground truncate max-w-[140px]">
+                        {currentCompany?.name}
+                      </span>
+                    </div>
+                    <ChevronDown className="ml-auto h-4 w-4 opacity-40" />
+                  </SidebarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  className="w-[240px]"
+                  align="start"
+                  side="bottom"
+                  sideOffset={4}
+                >
+                  <DropdownMenuRadioGroup value={selectedCompany} onValueChange={setSelectedCompany}>
+                    {companies.map((company) => (
+                      <DropdownMenuRadioItem
+                        key={company.id}
+                        value={company.id}
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-6 w-6 items-center justify-center rounded bg-muted text-[10px] font-medium">
+                            {company.code}
+                          </div>
+                          <span className="text-sm">{company.name}</span>
                         </div>
-                        <span className="text-sm">{company.name}</span>
-                      </div>
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
