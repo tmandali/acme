@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import React, { useState, useEffect } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -178,12 +178,34 @@ export default function SQLQueryDashboard() {
     c.name.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  const searchResults = searchTerm === ""
-    ? searchHistory.map(item => ({ type: 'history', label: item }))
-    : [
-      ...filteredQueries.map(q => ({ type: 'query', label: q.name, slug: q.slug })),
-      ...filteredConnections.map(c => ({ type: 'connection', label: c.name, id: c.id }))
-    ]
+  // Master data types
+  const masterData = [
+    { type: 'master' as const, label: "Kayıtlı Sorgular", icon: FileCode, href: "/sql-query", color: "text-primary" },
+    { type: 'master' as const, label: "Veritabanı Bağlantıları", icon: Database, href: "/sql-query/connections", color: "text-orange-500" },
+    { type: 'master' as const, label: "Veri Sözlüğü ve Şemalar", icon: Layers, href: "/sql-query/schema", color: "text-indigo-500" },
+    { type: 'master' as const, label: "API Dokümantasyonu", icon: Terminal, href: "/sql-query/docs", color: "text-emerald-500" },
+  ]
+
+  const filteredMasterData = masterData.filter(m =>
+    m.label.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
+  const searchResults = selectedItem
+    ? (
+      selectedItem.label === "Kayıtlı Sorgular"
+        ? filteredQueries.map(q => ({ type: 'query' as const, label: q.name, slug: q.slug }))
+        : selectedItem.label === "Veritabanı Bağlantıları"
+          ? filteredConnections.map(c => ({ type: 'connection' as const, label: c.name, id: c.id }))
+          : []
+    )
+    : (searchTerm === ""
+      ? searchHistory.map(item => ({ type: 'history' as const, label: item }))
+      : [
+        ...filteredMasterData,
+        ...filteredQueries.map(q => ({ type: 'query' as const, label: q.name, slug: q.slug })),
+        ...filteredConnections.map(c => ({ type: 'connection' as const, label: c.name, id: c.id }))
+      ]
+    )
 
   useEffect(() => {
     setHighlightedIndex(-1)
@@ -227,6 +249,8 @@ export default function SQLQueryDashboard() {
           window.location.href = `/sql-query/${selected.slug}`
         } else if (selected.type === 'connection') {
           window.location.href = `/sql-query/connections`
+        } else if (selected.type === 'master') {
+          window.location.href = selected.href
         }
       } else {
         handleSearchSubmit(searchTerm)
@@ -280,12 +304,18 @@ export default function SQLQueryDashboard() {
                   {selectedItem ? (
                     <div className={`flex items-center gap-3 h-12 px-4 border-r border-border/30 transition-all animate-in slide-in-from-left-2 duration-300 ${selectedItem.type === 'query' ? 'bg-primary/[0.03]' :
                       selectedItem.type === 'connection' ? 'bg-orange-500/[0.03]' :
-                        'bg-muted/30'
+                        selectedItem.type === 'master' ? 'bg-muted/50' :
+                          'bg-muted/30'
                       }`}>
                       <div className="flex items-center gap-2 text-[10px] font-bold tracking-wider text-foreground/80">
                         {selectedItem.type === 'query' && <FileCode className="h-3.5 w-3.5 text-primary" />}
                         {selectedItem.type === 'connection' && <Database className="h-3.5 w-3.5 text-orange-500" />}
                         {selectedItem.type === 'history' && <Clock className="h-3.5 w-3.5 text-muted-foreground" />}
+                        {selectedItem.type === 'master' && (selectedItem as any).icon &&
+                          React.createElement((selectedItem as any).icon, {
+                            className: `h-3.5 w-3.5 ${(selectedItem as any).color}`
+                          })
+                        }
                         <span className="max-w-[150px] truncate uppercase">{selectedItem.label}</span>
                       </div>
                       <button
@@ -317,7 +347,7 @@ export default function SQLQueryDashboard() {
                   <div className="absolute top-[47px] left-0 right-0 bg-background border-x border-b border-border rounded-b-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-200">
                     <div className="mx-4 border-t border-border/50" />
 
-                    {searchTerm === "" ? (
+                    {!selectedItem && searchTerm === "" ? (
                       <>
                         <div className="p-2 pt-3">
                           <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground/50 px-3 py-1 block">Son Aramalar</span>
@@ -339,60 +369,109 @@ export default function SQLQueryDashboard() {
                       </>
                     ) : (
                       <div className="pb-3 max-h-[400px] overflow-auto">
-                        {/* Queries Section */}
-                        {filteredQueries.length > 0 && (
+                        {selectedItem ? (
                           <div className="p-2">
-                            <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground/50 px-3 py-2 block">Sorgular</span>
-                            {filteredQueries.map((query, index) => {
-                              const globalIndex = index
-                              return (
-                                <Link
-                                  key={query.slug}
-                                  href={`/sql-query/${query.slug}`}
-                                  className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors group ${highlightedIndex === globalIndex ? 'bg-muted' : 'hover:bg-muted'
-                                    }`}
-                                >
-                                  <FileCode className={`h-4 w-4 transition-colors ${highlightedIndex === globalIndex ? 'text-primary' : 'text-primary/60'}`} />
-                                  <div className="flex flex-col">
-                                    <span className="text-sm font-medium">{query.name}</span>
-                                    <span className="text-[10px] font-mono text-muted-foreground">{query.slug}</span>
-                                  </div>
-                                  <ArrowRight className={`ml-auto h-3 w-3 text-muted-foreground transition-all ${highlightedIndex === globalIndex ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} />
-                                </Link>
-                              )
-                            })}
+                            <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground/50 px-3 py-2 block">
+                              {selectedItem.label}
+                            </span>
+                            {searchResults.map((item: any, index: number) => (
+                              <Link
+                                key={item.slug || item.id || item.label}
+                                href={item.type === 'query' ? `/sql-query/${item.slug}` : '/sql-query/connections'}
+                                className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors group ${highlightedIndex === index ? 'bg-muted' : 'hover:bg-muted'}`}
+                              >
+                                {item.type === 'query' && <FileCode className={`h-4 w-4 transition-colors ${highlightedIndex === index ? 'text-primary' : 'text-primary/60'}`} />}
+                                {item.type === 'connection' && <Database className={`h-4 w-4 transition-colors ${highlightedIndex === index ? 'text-orange-500' : 'text-orange-500/60'}`} />}
+                                <div className="flex flex-col">
+                                  <span className="text-sm font-medium">{item.label}</span>
+                                  {item.slug && <span className="text-[10px] font-mono text-muted-foreground">{item.slug}</span>}
+                                </div>
+                                <ArrowRight className={`ml-auto h-3 w-3 text-muted-foreground transition-all ${highlightedIndex === index ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} />
+                              </Link>
+                            ))}
                           </div>
-                        )}
+                        ) : (
+                          <>
+                            {/* Master Data Section */}
+                            {filteredMasterData.length > 0 && (
+                              <div className="p-2">
+                                <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground/50 px-3 py-2 block">Ana Veri Tipleri</span>
+                                {filteredMasterData.map((item, index) => {
+                                  const globalIndex = index
+                                  return (
+                                    <Link
+                                      key={item.label}
+                                      href={item.href}
+                                      className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors group ${highlightedIndex === globalIndex ? 'bg-muted' : 'hover:bg-muted'
+                                        }`}
+                                    >
+                                      <item.icon className={`h-4 w-4 transition-colors ${highlightedIndex === globalIndex ? item.color : `${item.color}/60`}`} />
+                                      <div className="flex flex-col">
+                                        <span className="text-sm font-medium">{item.label}</span>
+                                      </div>
+                                      <ArrowRight className={`ml-auto h-3 w-3 text-muted-foreground transition-all ${highlightedIndex === globalIndex ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} />
+                                    </Link>
+                                  )
+                                })}
+                              </div>
+                            )}
 
-                        {/* Connections Section */}
-                        {filteredConnections.length > 0 && (
-                          <div className="p-2 pt-0">
-                            <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground/50 px-3 py-2 block">Bağlantılar</span>
-                            {filteredConnections.map((conn, index) => {
-                              const globalIndex = filteredQueries.length + index
-                              return (
-                                <Link
-                                  key={conn.id}
-                                  href="/sql-query/connections"
-                                  className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors group ${highlightedIndex === globalIndex ? 'bg-muted' : 'hover:bg-muted'
-                                    }`}
-                                >
-                                  <Database className={`h-4 w-4 transition-colors ${highlightedIndex === globalIndex ? 'text-orange-500' : 'text-orange-500/60'}`} />
-                                  <div className="flex flex-col">
-                                    <span className="text-sm font-medium">{conn.name}</span>
-                                    <span className="text-[10px] font-mono text-muted-foreground uppercase">{conn.type}</span>
-                                  </div>
-                                  <ArrowRight className={`ml-auto h-3 w-3 text-muted-foreground transition-all ${highlightedIndex === globalIndex ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} />
-                                </Link>
-                              )
-                            })}
-                          </div>
-                        )}
+                            {/* Queries Section */}
+                            {filteredQueries.length > 0 && (
+                              <div className="p-2 pt-0">
+                                <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground/50 px-3 py-2 block">Sorgular</span>
+                                {filteredQueries.map((query, index) => {
+                                  const globalIndex = filteredMasterData.length + index
+                                  return (
+                                    <Link
+                                      key={query.slug}
+                                      href={`/sql-query/${query.slug}`}
+                                      className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors group ${highlightedIndex === globalIndex ? 'bg-muted' : 'hover:bg-muted'
+                                        }`}
+                                    >
+                                      <FileCode className={`h-4 w-4 transition-colors ${highlightedIndex === globalIndex ? 'text-primary' : 'text-primary/60'}`} />
+                                      <div className="flex flex-col">
+                                        <span className="text-sm font-medium">{query.name}</span>
+                                        <span className="text-[10px] font-mono text-muted-foreground">{query.slug}</span>
+                                      </div>
+                                      <ArrowRight className={`ml-auto h-3 w-3 text-muted-foreground transition-all ${highlightedIndex === globalIndex ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} />
+                                    </Link>
+                                  )
+                                })}
+                              </div>
+                            )}
 
-                        {filteredQueries.length === 0 && filteredConnections.length === 0 && (
-                          <div className="py-12 text-center">
-                            <p className="text-sm text-muted-foreground font-light italic">Sonuç bulunamadı...</p>
-                          </div>
+                            {/* Connections Section */}
+                            {filteredConnections.length > 0 && (
+                              <div className="p-2 pt-0">
+                                <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground/50 px-3 py-2 block">Bağlantılar</span>
+                                {filteredConnections.map((conn, index) => {
+                                  const globalIndex = filteredMasterData.length + filteredQueries.length + index
+                                  return (
+                                    <Link
+                                      key={conn.id}
+                                      href="/sql-query/connections"
+                                      className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors group ${highlightedIndex === globalIndex ? 'bg-muted' : 'hover:bg-muted'
+                                        }`}
+                                    >
+                                      <Database className={`h-4 w-4 transition-colors ${highlightedIndex === globalIndex ? 'text-orange-500' : 'text-orange-500/60'}`} />
+                                      <div className="flex flex-col">
+                                        <span className="text-sm font-medium">{conn.name}</span>
+                                        <span className="text-[10px] font-mono text-muted-foreground uppercase">{conn.type}</span>
+                                      </div>
+                                      <ArrowRight className={`ml-auto h-3 w-3 text-muted-foreground transition-all ${highlightedIndex === globalIndex ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} />
+                                    </Link>
+                                  )
+                                })}
+                              </div>
+                            )}
+
+                            {filteredQueries.length === 0 && filteredConnections.length === 0 && filteredMasterData.length === 0 && (
+                              <div className="py-12 text-center">
+                                <p className="text-sm text-muted-foreground font-light italic">Sonuç bulunamadı...</p>
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     )}
