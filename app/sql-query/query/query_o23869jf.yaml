@@ -1,4 +1,4 @@
-name: Kullanıcılar
+name: Kullanıcı Listesi
 sql: select * from users
 variables: []
-connectionId: conn_1
+connectionId: conn_4

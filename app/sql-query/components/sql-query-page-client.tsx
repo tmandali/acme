@@ -7,7 +7,10 @@ import { AppSidebar } from "@/components/app-sidebar"
 import {
     Breadcrumb,
     BreadcrumbItem,
+    BreadcrumbLink,
     BreadcrumbList,
+    BreadcrumbPage,
+    BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -531,13 +534,19 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                         <Breadcrumb>
                             <BreadcrumbList>
                                 <BreadcrumbItem>
-                                    <input
-                                        type="text"
-                                        value={queryName}
-                                        onChange={(e) => setQueryName(e.target.value)}
-                                        className="text-sm font-medium bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -mx-1"
-                                        placeholder="Sorgu adı..."
-                                    />
+                                    <BreadcrumbLink href="/sql-query">sql-query</BreadcrumbLink>
+                                </BreadcrumbItem>
+                                <BreadcrumbSeparator />
+                                <BreadcrumbItem>
+                                    <BreadcrumbPage>
+                                        <input
+                                            type="text"
+                                            value={queryName}
+                                            onChange={(e) => setQueryName(e.target.value)}
+                                            className="text-sm font-medium bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -mx-1 text-foreground"
+                                            placeholder="Sorgu adı..."
+                                        />
+                                    </BreadcrumbPage>
                                 </BreadcrumbItem>
                             </BreadcrumbList>
                         </Breadcrumb>
@@ -577,53 +586,55 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                 <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
                                     <div className="flex items-center gap-2">
                                         <Database className="h-3.5 w-3.5 text-muted-foreground" />
-                                        <Popover open={isConnOpen} onOpenChange={setIsConnOpen}>
-                                            <PopoverTrigger asChild>
-                                                <Button
-                                                    variant="ghost"
-                                                    role="combobox"
-                                                    aria-expanded={isConnOpen}
-                                                    className="h-7 w-[220px] justify-between text-xs px-2 hover:bg-muted/50 font-normal shadow-none border-none"
-                                                >
-                                                    <div className="flex items-center gap-2 truncate">
-                                                        {selectedConnectionId
-                                                            ? sampleConnections.find((c) => c.id === selectedConnectionId)?.name
-                                                            : "Bağlantı seçin..."}
-                                                    </div>
-                                                    <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-[280px] p-0" align="start">
-                                                <Command>
-                                                    <CommandInput placeholder="Bağlantı ara..." className="h-8 text-xs" />
-                                                    <CommandList>
-                                                        <CommandEmpty className="py-2 text-xs text-center text-muted-foreground">Bağlantı bulunamadı.</CommandEmpty>
-                                                        <CommandGroup>
-                                                            {sampleConnections.map((conn) => (
-                                                                <CommandItem
-                                                                    key={conn.id}
-                                                                    value={conn.name}
-                                                                    onSelect={() => {
-                                                                        setSelectedConnectionId(conn.id)
-                                                                        setIsConnOpen(false)
-                                                                    }}
-                                                                    className="text-xs py-2"
-                                                                >
-                                                                    <Check
-                                                                        className={`mr-2 h-3.5 w-3.5 transition-opacity ${selectedConnectionId === conn.id ? "opacity-100" : "opacity-0"
-                                                                            }`}
-                                                                    />
-                                                                    <div className="flex flex-col">
-                                                                        <span>{conn.name}</span>
-                                                                        <span className="text-[10px] text-muted-foreground uppercase font-mono">{conn.type}</span>
-                                                                    </div>
-                                                                </CommandItem>
-                                                            ))}
-                                                        </CommandGroup>
-                                                    </CommandList>
-                                                </Command>
-                                            </PopoverContent>
-                                        </Popover>
+                                        {mounted && (
+                                            <Popover open={isConnOpen} onOpenChange={setIsConnOpen}>
+                                                <PopoverTrigger asChild>
+                                                    <Button
+                                                        variant="ghost"
+                                                        role="combobox"
+                                                        aria-expanded={isConnOpen}
+                                                        className="h-7 w-[220px] justify-between text-xs px-2 hover:bg-muted/50 font-normal shadow-none border-none"
+                                                    >
+                                                        <div className="flex items-center gap-2 truncate">
+                                                            {selectedConnectionId
+                                                                ? sampleConnections.find((c) => c.id === selectedConnectionId)?.name
+                                                                : "Bağlantı seçin..."}
+                                                        </div>
+                                                        <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+                                                    </Button>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-[220px] p-0" align="start">
+                                                    <Command>
+                                                        <CommandInput placeholder="Bağlantı ara..." className="h-8 text-xs" />
+                                                        <CommandList>
+                                                            <CommandEmpty className="py-2 text-xs text-center text-muted-foreground">Bağlantı bulunamadı.</CommandEmpty>
+                                                            <CommandGroup>
+                                                                {sampleConnections.map((conn) => (
+                                                                    <CommandItem
+                                                                        key={conn.id}
+                                                                        value={conn.name}
+                                                                        onSelect={() => {
+                                                                            setSelectedConnectionId(conn.id)
+                                                                            setIsConnOpen(false)
+                                                                        }}
+                                                                        className="text-xs py-2"
+                                                                    >
+                                                                        <Check
+                                                                            className={`mr-2 h-3.5 w-3.5 transition-opacity ${selectedConnectionId === conn.id ? "opacity-100" : "opacity-0"
+                                                                                }`}
+                                                                        />
+                                                                        <div className="flex flex-col">
+                                                                            <span>{conn.name}</span>
+                                                                            <span className="text-[10px] text-muted-foreground uppercase font-mono">{conn.type}</span>
+                                                                        </div>
+                                                                    </CommandItem>
+                                                                ))}
+                                                            </CommandGroup>
+                                                        </CommandList>
+                                                    </Command>
+                                                </PopoverContent>
+                                            </Popover>
+                                        )}
                                     </div>
                                     <div className="flex items-center gap-4">
                                         <Tabs

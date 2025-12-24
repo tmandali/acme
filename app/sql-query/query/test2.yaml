@@ -46,3 +46,4 @@ variables:
     customValues: ""
     betweenStart: "20251222"
     betweenEnd: "20251228"
+connectionId: conn_1

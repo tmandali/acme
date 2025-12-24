@@ -232,6 +232,7 @@ export function SQLEditor({
           showGutter={true}
           highlightActiveLine={true}
           readOnly={readOnly}
+          focus={true}
           setOptions={{
             enableBasicAutocompletion: true,
             enableLiveAutocompletion: true,

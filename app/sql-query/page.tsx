@@ -32,8 +32,23 @@ import {
   ArrowUpCircle,
   Copy,
   ExternalLink,
-  Zap
+  Zap,
+  ChevronsUpDown,
+  Check
 } from "lucide-react"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 
@@ -70,15 +85,17 @@ function ActivityItem({
   time,
   icon: Icon,
   color = "text-muted-foreground/40",
+  href,
 }: {
   title: string
   description: string
   time: string
   icon?: React.ComponentType<{ className?: string }>
   color?: string
+  href?: string
 }) {
-  return (
-    <div className="flex items-center justify-between py-4 border-b last:border-0">
+  const content = (
+    <>
       <div className="flex items-center gap-3">
         {Icon && <Icon className={`h-4 w-4 shrink-0 ${color}`} />}
         <div>
@@ -87,6 +104,23 @@ function ActivityItem({
         </div>
       </div>
       <span className="text-xs text-muted-foreground font-light">{time}</span>
+    </>
+  )
+
+  if (href) {
+    return (
+      <a
+        href={href}
+        className="flex items-center justify-between py-4 border-b last:border-0 hover:bg-muted/30 transition-colors px-2 -mx-2 rounded-md"
+      >
+        {content}
+      </a>
+    )
+  }
+
+  return (
+    <div className="flex items-center justify-between py-4 border-b last:border-0">
+      {content}
     </div>
   )
 }
@@ -105,13 +139,27 @@ export default function SQLQueryDashboard() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [activeQuery, setActiveQuery] = useState("")
   const [selectedItem, setSelectedItem] = useState<{ label: string; type: string; slug?: string; id?: number } | null>(null)
+  const [isQueryConnOpen, setIsQueryConnOpen] = useState(false)
+  const [isConnSelectorOpen, setIsConnSelectorOpen] = useState(false)
 
-  // Mock queries state
-  const [queries] = useState([
-    { slug: "marketing-report", name: "Pazarlama Analizi", sql: "SELECT * FROM campaigns..." },
-    { slug: "inventory-check", name: "Stok Durumu", sql: "SELECT item_name, qty FROM..." },
-    { slug: "sales-overview", name: "Satış Özeti", sql: "SELECT total_sales FROM..." },
-  ])
+  // Dynamic queries state
+  const [queries, setQueries] = useState<{ slug: string; name: string; sql: string }[]>([])
+
+  // Fetch queries from server
+  useEffect(() => {
+    const fetchQueries = async () => {
+      try {
+        const response = await fetch("/api/sql-query/list")
+        const data = await response.json()
+        if (data.queries) {
+          setQueries(data.queries)
+        }
+      } catch (error) {
+        console.error("Error fetching queries:", error)
+      }
+    }
+    fetchQueries()
+  }, [])
 
   // Mock connections state
   const [connections] = useState([
@@ -397,6 +445,7 @@ export default function SQLQueryDashboard() {
                         time="2dk"
                         icon={FileCode}
                         color="text-primary/60"
+                        href={`/sql-query/${query.slug}`}
                       />
                     ))}
                     <ActivityItem
@@ -416,18 +465,88 @@ export default function SQLQueryDashboard() {
                 <div>
                   <h2 className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold mb-6">ANA VERİLER</h2>
                   <div className="flex flex-col">
-                    <QuickAction
-                      title="Kayıtlı Sorgular"
-                      icon={FileCode}
-                      href="/sql-query"
-                      color="text-primary"
-                    />
-                    <QuickAction
-                      title="Veritabanı Bağlantıları"
-                      icon={Database}
-                      href="/sql-query/connections"
-                      color="text-orange-500"
-                    />
+                    {/* Kayıtlı Sorgular - Searchable */}
+                    <div className="border-b">
+                      <Popover open={isQueryConnOpen} onOpenChange={setIsQueryConnOpen}>
+                        <PopoverTrigger asChild>
+                          <button className="w-full flex items-center justify-between py-3 group hover:bg-muted/30 transition-colors px-1 rounded-md">
+                            <div className="flex items-center gap-3">
+                              <FileCode className="h-4 w-4 text-primary" />
+                              <span className="text-sm font-light text-foreground/80 group-hover:text-foreground text-left">Kayıtlı Sorgular (Bul...)</span>
+                            </div>
+                            <ChevronsUpDown className="h-4 w-4 text-muted-foreground opacity-30 group-hover:opacity-100 transition-all" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[260px] p-0" align="start">
+                          <Command>
+                            <CommandInput placeholder="Sorgu ara..." className="h-8 text-xs" />
+                            <CommandList>
+                              <CommandEmpty className="py-2 text-xs text-center text-muted-foreground">Sorgu bulunamadı.</CommandEmpty>
+                              <CommandGroup>
+                                {queries.map((q) => (
+                                  <CommandItem
+                                    key={q.slug}
+                                    value={q.name}
+                                    onSelect={() => {
+                                      window.location.href = `/sql-query/${q.slug}`
+                                    }}
+                                    className="text-xs py-2"
+                                  >
+                                    <FileCode className="mr-2 h-3.5 w-3.5 text-primary/60" />
+                                    <div className="flex flex-col">
+                                      <span>{q.name}</span>
+                                      <span className="text-[10px] text-muted-foreground font-mono">{q.slug}</span>
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+
+                    {/* Veritabanı Bağlantıları - Searchable */}
+                    <div className="border-b">
+                      <Popover open={isConnSelectorOpen} onOpenChange={setIsConnSelectorOpen}>
+                        <PopoverTrigger asChild>
+                          <button className="w-full flex items-center justify-between py-3 group hover:bg-muted/30 transition-colors px-1 rounded-md">
+                            <div className="flex items-center gap-3">
+                              <Database className="h-4 w-4 text-orange-500" />
+                              <span className="text-sm font-light text-foreground/80 group-hover:text-foreground text-left">Veritabanı Bağlantıları (Bul...)</span>
+                            </div>
+                            <ChevronsUpDown className="h-4 w-4 text-muted-foreground opacity-30 group-hover:opacity-100 transition-all" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[260px] p-0" align="start">
+                          <Command>
+                            <CommandInput placeholder="Bağlantı ara..." className="h-8 text-xs" />
+                            <CommandList>
+                              <CommandEmpty className="py-2 text-xs text-center text-muted-foreground">Bağlantı bulunamadı.</CommandEmpty>
+                              <CommandGroup>
+                                {connections.map((conn) => (
+                                  <CommandItem
+                                    key={conn.id}
+                                    value={conn.name}
+                                    onSelect={() => {
+                                      window.location.href = `/sql-query/connections`
+                                    }}
+                                    className="text-xs py-2"
+                                  >
+                                    <Database className="mr-2 h-3.5 w-3.5 text-orange-500/60" />
+                                    <div className="flex flex-col">
+                                      <span>{conn.name}</span>
+                                      <span className="text-[10px] text-muted-foreground uppercase font-mono">{conn.type}</span>
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+
                     <QuickAction
                       title="Veri Sözlüğü ve Şemalar"
                       icon={Layers}
