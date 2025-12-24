@@ -17,6 +17,8 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar"
 
+import { useState, useEffect } from "react"
+
 export function NavMain({
   items,
 }: {
@@ -31,6 +33,26 @@ export function NavMain({
     }[]
   }[]
 }) {
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  if (!mounted) {
+    return (
+      <SidebarGroup>
+        <SidebarMenu>
+          {items.map((item) => (
+            <SidebarMenuItem key={item.title}>
+              <SidebarMenuButton size="lg" />
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      </SidebarGroup>
+    )
+  }
+
   return (
     <SidebarGroup>
       <SidebarMenu>
