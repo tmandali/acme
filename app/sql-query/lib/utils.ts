@@ -68,14 +68,16 @@ const nunjucksEnv = nunjucks.configure({ autoescape: false });
 
 
 // SQL için özel filtreler ekle
-nunjucksEnv.addFilter('quote', (val) => {
+const quoteFunc = (val: any) => {
   if (typeof val === 'number') return val;
   if (Array.isArray(val)) return val.map(v => typeof v === 'number' ? v : `'${v}'`).join(', ');
   return `'${val}'`;
-});
+};
+nunjucksEnv.addFilter('quote', quoteFunc);
+nunjucksEnv.addGlobal('quote', quoteFunc);
 
 
-nunjucksEnv.addFilter('sql', (val) => {
+const sqlFunc = (val: any) => {
   if (val === undefined || val === null || val === '') return 'NULL';
   if (typeof val === 'number') return val;
   if (Array.isArray(val)) {
@@ -84,16 +86,77 @@ nunjucksEnv.addFilter('sql', (val) => {
   }
   if (typeof val === 'boolean') return val ? '1' : '0';
   return `'${val}'`;
-});
+};
+nunjucksEnv.addFilter('sql', sqlFunc);
+nunjucksEnv.addGlobal('sql', sqlFunc);
 
 // Değerin bir aralık nesnesi olup olmadığını kontrol et
 const isRange = (val: any) => val && typeof val === 'object' && ('start' in val || 'begin' in val);
 
 // Aralığın parçalarına erişim
-nunjucksEnv.addFilter('begin', (val) => isRange(val) ? (val.begin || val.start) : val);
-nunjucksEnv.addFilter('start', (val) => isRange(val) ? (val.start || val.begin) : val);
-nunjucksEnv.addFilter('end', (val) => isRange(val) ? (val.finish || val.end) : val);
-nunjucksEnv.addFilter('finish', (val) => isRange(val) ? (val.finish || val.end) : val);
+const beginFunc = (val: any) => isRange(val) ? (val.begin || val.start) : val;
+const startFunc = (val: any) => isRange(val) ? (val.start || val.begin) : val;
+const endFunc = (val: any) => isRange(val) ? (val.finish || val.end) : val;
+const finishFunc = (val: any) => isRange(val) ? (val.finish || val.end) : val;
+
+nunjucksEnv.addFilter('begin', beginFunc);
+nunjucksEnv.addGlobal('begin', beginFunc);
+nunjucksEnv.addFilter('start', startFunc);
+nunjucksEnv.addGlobal('start', startFunc);
+nunjucksEnv.addFilter('end', endFunc);
+nunjucksEnv.addGlobal('end', endFunc);
+nunjucksEnv.addFilter('finish', finishFunc);
+nunjucksEnv.addGlobal('finish', finishFunc);
+
+// Tarih aritmetiği filtresi (örn: {{ now | add_days(-1) }})
+nunjucksEnv.addFilter('add_days', (val: any, days: number) => {
+  if (!val) return val;
+  const dateStr = String(val);
+  const d = dateStr.length === 8
+    ? parse(dateStr, "yyyyMMdd", new Date())
+    : new Date(dateStr);
+  if (!isValid(d)) return val;
+  return format(addDays(d, Number(days)), "yyyyMMdd");
+});
+
+// Şablon ve Bağıl Tarih Değerlerini Çözen Fonksiyon
+export function evaluateTemplateValue(v: any, nowStr?: string): string {
+  if (v === undefined || v === null || v === "") return v;
+  if (typeof v !== 'string') return String(v);
+
+  const now = nowStr || format(new Date(), "yyyyMMdd");
+  let processed = v;
+
+  // 1. Template render et (örn: {{now}})
+  if (v.includes('{{')) {
+    try {
+      processed = nunjucksEnv.renderString(v, { now });
+    } catch (e) {
+      console.error("Value render error:", e);
+    }
+  }
+
+  // 2. Bağıl tarih hesapla (örn: 20241224 -1d)
+  const relativeMatch = processed.trim().match(/^(\d{8})\s*([+-])\s*(\d+)([dmwy])$/);
+  if (relativeMatch) {
+    const [_, baseDate, op, amount, unit] = relativeMatch;
+    const d = parse(baseDate, "yyyyMMdd", new Date());
+    if (isValid(d)) {
+      let days = Number(amount);
+      if (op === '-') days = -days;
+
+      if (unit === 'd') {
+        processed = format(addDays(d, days), "yyyyMMdd");
+      } else if (unit === 'w') {
+        processed = format(addDays(d, days * 7), "yyyyMMdd");
+      } else if (unit === 'm') {
+        processed = format(addDays(d, days * 30), "yyyyMMdd");
+      }
+    }
+  }
+
+  return processed;
+}
 
 const formatSqlValue = (val: any) => {
   if (val === undefined || val === null || val === '') return null;
@@ -127,107 +190,149 @@ const getAdjustedEndValue = (end: any, endOffset: any) => {
   return adjustedEnd;
 };
 
+const getValAndField = (val: any, fieldName?: string) => {
+  // 1. Eğer fonksiyon çağrısı yapıldıysa (örn: VAR('COL'))
+  if (val && typeof val === 'object' && val.__isSqlWrapper) {
+    return { v: val.value, f: val.fieldName || fieldName, empty: val.emptyValue };
+  }
+  // 2. Eğer direkt değişken geçildiyse (örn: VAR | eq)
+  if (typeof val === 'function' && (val as any).__isSqlFunction) {
+    const executed = val();
+    return { v: executed.value, f: executed.fieldName || fieldName, empty: (val as any).emptyValue };
+  }
+  // 3. Standart değer
+  return { v: val, f: fieldName, empty: undefined };
+};
+
+const resolveEmptyValue = (f: string | undefined, emptyValTemplate: string | undefined, defaultSql: string) => {
+  if (!emptyValTemplate) return defaultSql;
+  // {{ field }} etiketini kolon ismiyle değiştir
+  return emptyValTemplate.replace(/\{\{\s*field\s*\}\}/g, f || '');
+};
+
 // > Greater Than
-nunjucksEnv.addFilter('gt', (val, fieldName) => {
-  const f = formatSqlValue(val);
-  if (f === null) return '';
-  const prefix = fieldName ? `${fieldName} > ` : '> ';
-  return `${prefix}${f}`;
-});
+const gtFunc = (val: any, fieldName?: string) => {
+  const { v, f, empty } = getValAndField(val, fieldName);
+  const formatted = formatSqlValue(v);
+  if (formatted === null) return resolveEmptyValue(f, empty, '');
+  const prefix = f ? `${f} > ` : '> ';
+  return `${prefix}${formatted}`;
+};
+nunjucksEnv.addFilter('gt', gtFunc);
+nunjucksEnv.addGlobal('gt', gtFunc);
 
 // < Less Than
-nunjucksEnv.addFilter('lt', (val, fieldName) => {
-  const f = formatSqlValue(val);
-  if (f === null) return '';
-  const prefix = fieldName ? `${fieldName} < ` : '< ';
-  return `${prefix}${f}`;
-});
+const ltFunc = (val: any, fieldName?: string) => {
+  const { v, f, empty } = getValAndField(val, fieldName);
+  const formatted = formatSqlValue(v);
+  if (formatted === null) return resolveEmptyValue(f, empty, '');
+  const prefix = f ? `${f} < ` : '< ';
+  return `${prefix}${formatted}`;
+};
+nunjucksEnv.addFilter('lt', ltFunc);
+nunjucksEnv.addGlobal('lt', ltFunc);
 
 // >= Greater Than or Equal To
 const gteFunc = (val: any, fieldName?: string) => {
-  const f = formatSqlValue(val);
-  if (f === null) return '';
-  const prefix = fieldName ? `${fieldName} >= ` : '>= ';
-  return `${prefix}${f}`;
+  const { v, f, empty } = getValAndField(val, fieldName);
+  const formatted = formatSqlValue(v);
+  if (formatted === null) return resolveEmptyValue(f, empty, '');
+  const prefix = f ? `${f} >= ` : '>= ';
+  return `${prefix}${formatted}`;
 };
 nunjucksEnv.addFilter('gte', gteFunc);
+nunjucksEnv.addGlobal('gte', gteFunc);
 nunjucksEnv.addFilter('ge', gteFunc);
+nunjucksEnv.addGlobal('ge', gteFunc);
 
 // <= Less Than or Equal To
 const lteFunc = (val: any, fieldName?: string) => {
-  const f = formatSqlValue(val);
-  if (f === null) return '';
-  const prefix = fieldName ? `${fieldName} <= ` : '<= ';
-  return `${prefix}${f}`;
+  const { v, f, empty } = getValAndField(val, fieldName);
+  const formatted = formatSqlValue(v);
+  if (formatted === null) return resolveEmptyValue(f, empty, '');
+  const prefix = f ? `${f} <= ` : '<= ';
+  return `${prefix}${formatted}`;
 };
 nunjucksEnv.addFilter('lte', lteFunc);
+nunjucksEnv.addGlobal('lte', lteFunc);
 nunjucksEnv.addFilter('le', lteFunc);
+nunjucksEnv.addGlobal('le', lteFunc);
 
 
 // == Equal (Smart: handles null and IN)
 const eqFunc = (val: any, fieldName?: string) => {
-  if (val === undefined || val === null || val === '') {
-    return fieldName ? `${fieldName} IS NULL` : 'IS NULL';
+  const { v, f, empty } = getValAndField(val, fieldName);
+  if (v === undefined || v === null || v === '') {
+    return resolveEmptyValue(f, empty, '');
   }
-  if (Array.isArray(val)) {
-    if (val.length === 0) return fieldName ? `${fieldName} IS NULL` : 'IS NULL';
-    const joined = val.map(v => typeof v === 'number' ? v : `'${v}'`).join(', ');
-    return fieldName ? `${fieldName} IN (${joined})` : `IN (${joined})`;
+  if (Array.isArray(v)) {
+    if (v.length === 0) return resolveEmptyValue(f, empty, '');
+    const joined = v.map(item => typeof item === 'number' ? item : `'${item}'`).join(', ');
+    return f ? `${f} IN (${joined})` : `IN (${joined})`;
   }
-  const f = formatSqlValue(val);
-  return fieldName ? `${fieldName} = ${f}` : `= ${f}`;
+  const formatted = formatSqlValue(v);
+  return f ? `${f} = ${formatted}` : `= ${formatted}`;
 };
 nunjucksEnv.addFilter('eq', eqFunc);
+nunjucksEnv.addGlobal('eq', eqFunc);
 
 
 // != Not Equal
-nunjucksEnv.addFilter('ne', (val, fieldName) => {
-  if (val === undefined || val === null || val === '') {
-    return fieldName ? `${fieldName} IS NOT NULL` : 'IS NOT NULL';
+const neFunc = (val: any, fieldName?: string) => {
+  const { v, f, empty } = getValAndField(val, fieldName);
+  if (v === undefined || v === null || v === '') {
+    return resolveEmptyValue(f, empty, '');
   }
-  if (Array.isArray(val)) {
-    if (val.length === 0) return fieldName ? `${fieldName} IS NOT NULL` : 'IS NOT NULL';
-    const joined = val.map(v => typeof v === 'number' ? v : `'${v}'`).join(', ');
-    return fieldName ? `${fieldName} NOT IN (${joined})` : `NOT IN (${joined})`;
+  if (Array.isArray(v)) {
+    if (v.length === 0) return resolveEmptyValue(f, empty, '');
+    const joined = v.map(item => typeof item === 'number' ? item : `'${item}'`).join(', ');
+    return f ? `${f} NOT IN (${joined})` : `NOT IN (${joined})`;
   }
-  const f = formatSqlValue(val);
-  return fieldName ? `${fieldName} <> ${f}` : `<> ${f}`;
-});
+  const formatted = formatSqlValue(v);
+  return f ? `${f} <> ${formatted}` : `<> ${formatted}`;
+};
+nunjucksEnv.addFilter('ne', neFunc);
+nunjucksEnv.addGlobal('ne', neFunc);
 
 
 // Benzer şekilde LIKE için
-nunjucksEnv.addFilter('like', (val, fieldName) => {
-  if (val === undefined || val === null || val === '') return fieldName ? `${fieldName} IS NOT NULL` : 'IS NOT NULL';
-  return fieldName ? `${fieldName} LIKE '%${val}%'` : `LIKE '%${val}%'`;
-});
+const likeFunc = (val: any, fieldName?: string) => {
+  const { v, f, empty } = getValAndField(val, fieldName);
+  if (v === undefined || v === null || v === '') return resolveEmptyValue(f, empty, '');
+  return f ? `${f} LIKE '%${v}%'` : `LIKE '%${v}%'`;
+};
+nunjucksEnv.addFilter('like', likeFunc);
+nunjucksEnv.addGlobal('like', likeFunc);
 
 
 // BETWEEN filtresi: Aralık nesnesini alır ve BETWEEN 'start' AND 'end' üretir.
 // end_offset parametresi eklenirse range gibi davranır (>= ve < kullanır)
-nunjucksEnv.addFilter('between', function (val, fieldName, options) {
-  let actualFieldName = typeof fieldName === 'string' ? fieldName : '';
+const betweenFunc = function (val: any, fieldName?: any, options?: any) {
+  const { v, f, empty } = getValAndField(val, typeof fieldName === 'string' ? fieldName : undefined);
   let opts = (typeof fieldName === 'object' ? fieldName : options) || {};
 
-  if (val && typeof val === 'object' && ('start' in val || 'begin' in val)) {
-    const start = val.start || val.begin;
-    const end = val.finish || val.end;
+  if (v && typeof v === 'object' && ('start' in v || 'begin' in v)) {
+    const start = v.start || v.begin;
+    const end = v.finish || v.end;
 
-    if (!start && !end) return '1=1';
+    if (!start && !end) return resolveEmptyValue(f, empty, '');
 
     const adjustedEnd = getAdjustedEndValue(end, opts.end_offset);
     const fStart = typeof start === 'number' ? start : `'${start}'`;
     const fEnd = typeof adjustedEnd === 'number' ? adjustedEnd : `'${adjustedEnd}'`;
 
     if (opts.end_offset) {
-      const prefix = actualFieldName ? `${actualFieldName}` : '';
+      const prefix = f ? `${f}` : '';
       return `${prefix}>=${fStart} AND ${prefix}<${fEnd}`;
     } else {
-      const prefix = actualFieldName ? `${actualFieldName} BETWEEN ` : 'BETWEEN ';
+      const prefix = f ? `${f} BETWEEN ` : 'BETWEEN ';
       return `${prefix}${fStart} AND ${fEnd}`;
     }
   }
-  return '1=1';
-});
+  return resolveEmptyValue(f, empty, '');
+};
+nunjucksEnv.addFilter('between', betweenFunc);
+nunjucksEnv.addGlobal('between', betweenFunc);
 
 
 
@@ -248,18 +353,45 @@ export function processJinjaTemplate(sqlQuery: string, variables: Variable[]): {
   variables.forEach(variable => {
     const activeValue = variable.value || variable.defaultValue
 
-    if (activeValue || variable.filterType === "between") {
-      let rawVal: any = activeValue
-      let sqlVal = ""
+    // Değişken her zaman context'e eklenmeli (boş olsa bile emptyValue çalışması için)
+    const createSqlWrapper = (val: any, sqlValue: string, defaultName: string, emptyVal: string | undefined) => {
+      const wrapper = (fieldName?: string) => {
+        return {
+          __isSqlWrapper: true,
+          value: val,
+          fieldName: fieldName || defaultName,
+          emptyValue: emptyVal
+        };
+      };
 
-      // Tip dönüşümü: Sayı ise gerçek number tipine çevir
-      const processValueType = (v: any) => {
-        if (v === undefined || v === null || v === "") return v;
-        if (variable.type === "number") {
-          const num = Number(v);
-          return isNaN(num) ? v : num;
+      // Bu flag filtreler tarafından tanınmasını sağlar
+      (wrapper as any).__isSqlFunction = true;
+      (wrapper as any).emptyValue = emptyVal;
+
+      // {{ VAR }} şeklinde direkt kullanıldığında SQL hazır değerini döner
+      wrapper.toString = () => {
+        if (!val || (Array.isArray(val) && val.length === 0)) {
+          if (emptyVal) return resolveEmptyValue(defaultName, emptyVal, '');
         }
-        return v;
+        return String(sqlValue);
+      };
+
+      return wrapper;
+    };
+
+    let rawVal: any = ""
+    let sqlVal = ""
+
+    if (activeValue || variable.filterType === "between") {
+      // Tip dönüşümü ve Bağıl Tarih İşleme
+      const processValueType = (v: any) => {
+        const processed = evaluateTemplateValue(v, context.now);
+
+        if (variable.type === "number") {
+          const num = Number(processed);
+          return isNaN(num) ? processed : num;
+        }
+        return processed;
       };
 
       if (variable.filterType === "between") {
@@ -284,7 +416,6 @@ export function processJinjaTemplate(sqlQuery: string, variables: Variable[]): {
         }
         if (!betweenValues.start) betweenValues.start = variable.betweenStart || ""
         if (!betweenValues.end) betweenValues.end = variable.betweenEnd || ""
-
 
         const start = processValueType(betweenValues.start);
         const end = processValueType(betweenValues.end);
@@ -314,60 +445,38 @@ export function processJinjaTemplate(sqlQuery: string, variables: Variable[]): {
         } else if (typedValues.length === 1) {
           rawVal = typedValues[0]
           sqlVal = typeof rawVal === 'number' ? String(rawVal) : `'${rawVal}'`;
-
-        } else {
-          rawVal = ""
-          sqlVal = "''"
         }
       }
-
-      context[variable.name] = rawVal
-      context[variable.name + '_sql'] = sqlVal
-      replacements[variable.name] = String(sqlVal)
-
     } else if (variable.required) {
       missingVariables.push({ name: variable.name, label: variable.label, required: true })
     }
+
+    context[variable.name] = createSqlWrapper(rawVal, sqlVal, variable.name, variable.emptyValue);
+    context[variable.name + '_sql'] = sqlVal
+    replacements[variable.name] = String(sqlVal)
   })
 
+  // 1. Render template - extremely defensive
   try {
-    // Nunjucks (Jinja) etiketlerini akıllı filtrelere dönüştür
-    // Hem {{ VAR('COL') | between }} hem de {{ VAR | between }} yazımlarını destekler.
-    // Sadece SQL karşılaştırma filtrelerini (eq, ne, between vb.) hedef alır.
-    const smartFilters = 'eq|ne|gt|lt|gte|ge|lte|le|like|between';
-    const processedRawQuery = sqlQuery.replace(
-      new RegExp(`\\{\\{\\s*(\\w+)(?:\\((['"]?)(.*?)\\2\\))?\\s*\\|\\s*(${smartFilters})(?:\\s*\\((.*?)\\))?(.*?)\\}\\}`, 'g'),
-      (match, varName, q, colName, filterName, args, rest) => {
-        const fieldName = colName || varName;
-        const trimmedArgs = (args || '').trim();
-        const trimmedRest = (rest || '').trim();
-
-        // Filtreye gönderilecek argümanları inşa et
-        let finalFilterArgs = `'${fieldName}'`;
-        if (trimmedArgs) {
-          finalFilterArgs += `, ${trimmedArgs}`;
-        }
-
-        return `{{ ${varName} | ${filterName}(${finalFilterArgs}) ${trimmedRest} }}`;
-      }
-    );
-
-
-
-
-
-
-
-    const processedQuery = nunjucksEnv.renderString(processedRawQuery, context)
-
-    return { processedQuery, replacements, missingVariables }
-  } catch (error: any) {
-    console.error("Nunjucks render error:", error)
+    const res = nunjucksEnv.renderString(sqlQuery, context);
     return {
-      processedQuery: `/* TEMPLATE ERROR: ${error.message} */\n${sqlQuery}`,
+      processedQuery: res,
       replacements,
       missingVariables
+    };
+  } catch (renderError: any) {
+    console.error("Critical Nunjucks Error:", renderError);
+
+    let msg = "Template yazım hatası";
+    if (renderError && renderError.message) {
+      msg = renderError.message.replace(/\(unknown path\)\s*/g, '');
     }
+
+    return {
+      processedQuery: `/* TEMPLATE ERROR: ${msg} */\n${sqlQuery}`,
+      replacements,
+      missingVariables
+    };
   }
 }
 

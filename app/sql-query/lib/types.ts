@@ -15,6 +15,7 @@ export interface Variable {
   regexErrorMessage?: string // Custom error message for regex validation
   betweenStart?: string // Between filter start value
   betweenEnd?: string // Between filter end value
+  emptyValue?: string // SQL to use when value is empty (e.g., '1=1' or 'IS NULL')
 }
 
 // YAML dosya yapısı

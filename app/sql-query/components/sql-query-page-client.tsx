@@ -81,6 +81,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     const [mounted, setMounted] = useState(false)
     const [selectedConnectionId, setSelectedConnectionId] = useState(initialData?.connectionId || sampleConnections[0].id)
     const [isConnOpen, setIsConnOpen] = useState(false)
+    const [currentWorkflowId, setCurrentWorkflowId] = useState<string | null>(null)
     const containerRef = useRef<HTMLDivElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const queryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -362,16 +363,17 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         return processJinjaTemplate(sqlQuery, variables)
     }, [variables])
 
-    const handleRunQuery = useCallback(() => {
+    const handleRunQuery = useCallback((queryToRun?: string) => {
+        const targetQuery = typeof queryToRun === 'string' ? queryToRun : query
         // Jinja template işleme
-        const { processedQuery, replacements, missingVariables } = processQuery(query)
+        const { processedQuery, replacements, missingVariables } = processQuery(targetQuery)
 
         // Query'deki tüm template değişkenlerini bul (Nunjucks uyumlu)
         const templatePattern = /\{\{\s*(\w+)(?::(BEGIN|END))?(?:\.\w+)?\s*\}\}|\{%\s*(?:if|elif|for)\s+(\w+)/g
 
         const allTemplateVars: string[] = []
         let match
-        while ((match = templatePattern.exec(query)) !== null) {
+        while ((match = templatePattern.exec(targetQuery)) !== null) {
             const varName = match[1] || match[3]
             if (varName && !allTemplateVars.includes(varName)) {
                 allTemplateVars.push(varName)
@@ -406,8 +408,8 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
             console.log(`║   ${i + 1}. name: "${v.name}", label: "${v.label}", type: "${v.type}", value: "${activeVal}"`)
         })
         console.log("╠══════════════════════════════════════════════════════════════")
-        console.log("║ 📝 Orijinal Sorgu:")
-        console.log("║", query.split('\n').join('\n║ '))
+        console.log(`║ 📝 ${typeof queryToRun === 'string' ? "Seçili" : "Orijinal"} Sorgu:`)
+        console.log("║", targetQuery.split('\n').join('\n║ '))
 
         if (allTemplateVars.length > 0) {
             console.log("╠══════════════════════════════════════════════════════════════")
@@ -427,27 +429,88 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         console.log("║", processedQuery.split('\n').join('\n║ '))
         console.log("╚══════════════════════════════════════════════════════════════")
 
-        // Simüle edilmiş sorgu çalıştırma (1 saniye)
-        queryTimeoutRef.current = setTimeout(() => {
-            setResults(sampleResults)
-            setExecutionTime(Math.floor(Math.random() * 100) + 20)
-            setIsLoading(false)
-            setQueryStatus("completed")
-            queryTimeoutRef.current = null
-        }, 1000)
+        // Temporal API'sini çağır
+        const runTemporalQuery = async () => {
+            const workflowId = `sql-query-${Math.random().toString(36).substring(2, 11)}`
+            setCurrentWorkflowId(workflowId)
+
+            console.log(">>> [Frontend] Sending query to Temporal API:", processedQuery, "workflowId:", workflowId);
+            try {
+                const response = await fetch("/api/temporal/execute", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        query: processedQuery,
+                        workflowId: workflowId
+                    }),
+                })
+                console.log(">>> [Frontend] API Response status:", response.status);
+
+                if (!response.ok) {
+                    const error = await response.json()
+                    throw new Error(error.error || "Sorgu çalıştırılırken bir hata oluştu")
+                }
+
+                const result = await response.json()
+                console.log(">>> [Frontend] API Data received:", result);
+
+                if (result.success && Array.isArray(result.data)) {
+                    console.log(`>>> [Frontend] Setting ${result.data.length} results`);
+                    setResults(result.data)
+                } else {
+                    console.warn(">>> [Frontend] Unexpected data format:", result);
+                    setResults([])
+                }
+
+                setExecutionTime(result.execution_time_ms || 42)
+                setQueryStatus("completed")
+            } catch (error: any) {
+                // Eğer kullanıcı durdurduysa hata gösterme
+                if (queryStatus === "cancelled" || error.name === 'AbortError') {
+                    console.log(">>> [Frontend] Query cancelled or aborted, skipping error toast.");
+                    return;
+                }
+
+                console.error("Temporal hatası:", error)
+                toast.error(error.message || "Temporal bağlantı hatası")
+                setQueryStatus(null)
+            } finally {
+                setIsLoading(false)
+                setCurrentWorkflowId(null)
+            }
+        }
+
+        runTemporalQuery()
     }, [query, processQuery, variables])
 
-    const handleCancelQuery = useCallback(() => {
-        if (queryTimeoutRef.current) {
-            clearTimeout(queryTimeoutRef.current)
-            queryTimeoutRef.current = null
-            setIsLoading(false)
-            setQueryStatus("cancelled")
-            console.log("╔══════════════════════════════════════════════════════════════")
-            console.log("║ ❌ SORGU İPTAL EDİLDİ")
-            console.log("╚══════════════════════════════════════════════════════════════")
+
+    const handleCancelQuery = useCallback(async () => {
+        if (currentWorkflowId) {
+            console.log(">>> [Frontend] Cancelling workflow:", currentWorkflowId);
+            try {
+                const response = await fetch("/api/temporal/cancel", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ workflowId: currentWorkflowId }),
+                })
+
+                if (response.ok) {
+                    toast.info("Sorgu durduruldu")
+                    setIsLoading(false)
+                    setResults([])
+                    setQueryStatus("cancelled")
+                    setCurrentWorkflowId(null)
+                }
+            } catch (error) {
+                console.error("Durdurma hatası:", error)
+                toast.error("Sorgu durdurulamadı")
+            }
         }
-    }, [])
+    }, [currentWorkflowId])
 
     const handleTableClick = useCallback((identifier: string) => {
         // Tablo veya kolon adını editöre ekle

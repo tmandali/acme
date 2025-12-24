@@ -39,6 +39,7 @@ import {
   Check,
   ArrowLeftRight,
   CalendarIcon,
+  RotateCcw,
 } from "lucide-react"
 import { Calendar } from "@/components/ui/calendar"
 import { format, parse, isValid } from "date-fns"
@@ -49,7 +50,8 @@ import {
   stringifyDefaultValues,
   variableTypeConfig,
   filterTypeConfig,
-  generateNameFromLabel
+  generateNameFromLabel,
+  evaluateTemplateValue,
 } from "../lib/utils"
 
 // Açılır liste (Combobox) için Varsayılan Değer Bileşeni
@@ -459,9 +461,14 @@ export function VariablesPanel({
   const [isEditMode, setIsEditMode] = useState(false)
 
   // Bir değişken seçildiğinde otomatik olarak düzenleme moduna geç
+  // Sadece ID değiştiğinde (yeni bir seçim yapıldığında) tetiklenir
+  const lastSelectedIdRef = useRef<string | null>(null)
   useEffect(() => {
-    if (selectedVariable) {
+    if (selectedVariable && selectedVariable.id !== lastSelectedIdRef.current) {
       setIsEditMode(true)
+      lastSelectedIdRef.current = selectedVariable.id
+    } else if (!selectedVariable) {
+      lastSelectedIdRef.current = null
     }
   }, [selectedVariable])
 
@@ -514,9 +521,10 @@ export function VariablesPanel({
       multiSelect: false,
       defaultValue: "",
       value: "",
-      required: true,
+      required: false,
       valuesSource: "custom",
       customValues: "",
+      emptyValue: "",
     }
     onVariablesChange([...variables, newVar])
     onSelectVariable(newVar)
@@ -645,9 +653,24 @@ export function VariablesPanel({
   }
 
   const handleUpdateVariable = (id: string, updates: Partial<Variable>) => {
-    onVariablesChange(variables.map(v => v.id === id ? { ...v, ...updates } : v))
+    onVariablesChange(variables.map(v => {
+      if (v.id === id) {
+        const updatedVar = { ...v, ...updates }
+        // Eğer defaultValue güncelleniyorsa ve mevcut value boşsa veya eski varsayılana eşitse, value'yu da güncelle
+        if (updates.defaultValue !== undefined && (!v.value || v.value === v.defaultValue)) {
+          updatedVar.value = updates.defaultValue
+        }
+        return updatedVar
+      }
+      return v
+    }))
+
     if (selectedVariable?.id === id) {
-      onSelectVariable({ ...selectedVariable, ...updates })
+      const updatedVar = { ...selectedVariable, ...updates }
+      if (updates.defaultValue !== undefined && (!selectedVariable.value || selectedVariable.value === selectedVariable.defaultValue)) {
+        updatedVar.value = updates.defaultValue
+      }
+      onSelectVariable(updatedVar)
     }
   }
 
@@ -957,10 +980,13 @@ export function VariablesPanel({
                     }
 
 
-                    // Tarih tipi için DatePicker kullan
+                    // Tarih tipi için resolved değeri kullan
                     if (variable.type === "date") {
-                      const startDateValue = activeStart ? parse(activeStart, "yyyyMMdd", new Date()) : undefined
-                      const endDateValue = activeEnd ? parse(activeEnd, "yyyyMMdd", new Date()) : undefined
+                      const resolvedStart = evaluateTemplateValue(activeStart)
+                      const resolvedEnd = evaluateTemplateValue(activeEnd)
+
+                      const startDateValue = resolvedStart ? parse(resolvedStart, "yyyyMMdd", new Date()) : undefined
+                      const endDateValue = resolvedEnd ? parse(resolvedEnd, "yyyyMMdd", new Date()) : undefined
                       const isValidStartDate = startDateValue && isValid(startDateValue)
                       const isValidEndDate = endDateValue && isValid(endDateValue)
 
@@ -1011,9 +1037,10 @@ export function VariablesPanel({
                     ? variable.value
                     : variable.defaultValue
 
-                  // Tarih tipi için DatePicker with Input
+                  // Tarih tipi için resolved değeri kullan
                   if (variable.type === "date") {
-                    const dateValue = activeInputValue ? parse(activeInputValue, "yyyyMMdd", new Date()) : undefined
+                    const resolvedDate = evaluateTemplateValue(activeInputValue)
+                    const dateValue = resolvedDate ? parse(resolvedDate, "yyyyMMdd", new Date()) : undefined
                     const isValidDateValue = dateValue && isValid(dateValue)
 
                     return (
@@ -1081,10 +1108,41 @@ export function VariablesPanel({
                       {variable.required && (
                         <span className="text-[10px] text-destructive">*</span>
                       )}
-                      {variable.regexPattern && (
-                        <span className="text-[9px] text-muted-foreground font-mono bg-muted px-1 py-0.5 rounded">
-                          regex
-                        </span>
+
+                      {variable.filterType === "between" ? (
+                        (variable.betweenStart || variable.betweenEnd) && (
+                          <span
+                            className={`text-[10px] text-muted-foreground ml-auto truncate opacity-70 italic flex items-center gap-1 transition-all
+                              ${variable.value && variable.value !== variable.defaultValue ? 'cursor-pointer hover:text-primary hover:opacity-100' : ''}`}
+                            onClick={() => {
+                              if (variable.value && variable.value !== variable.defaultValue) {
+                                handleUpdateVariable(variable.id, { value: variable.defaultValue });
+                              }
+                            }}
+                          >
+                            ({variable.betweenStart || "..."} - {variable.betweenEnd || "..."})
+                            {variable.value && variable.value !== variable.defaultValue && (
+                              <RotateCcw className="h-2.5 w-2.5" />
+                            )}
+                          </span>
+                        )
+                      ) : (
+                        variable.defaultValue && (
+                          <span
+                            className={`text-[10px] text-muted-foreground ml-auto truncate opacity-70 italic flex items-center gap-1 transition-all
+                              ${variable.value && variable.value !== variable.defaultValue ? 'cursor-pointer hover:text-primary hover:opacity-100' : ''}`}
+                            onClick={() => {
+                              if (variable.value && variable.value !== variable.defaultValue) {
+                                handleUpdateVariable(variable.id, { value: variable.defaultValue });
+                              }
+                            }}
+                          >
+                            Varsayılan: {variable.defaultValue}
+                            {variable.value && variable.value !== variable.defaultValue && (
+                              <RotateCcw className="h-2.5 w-2.5" />
+                            )}
+                          </span>
+                        )
                       )}
                     </div>
                     {renderValueInput()}
@@ -1301,27 +1359,17 @@ export function VariablesPanel({
                           <span className="text-xs font-medium text-blue-600 dark:text-blue-400">Başlangıç:</span>
                         </div>
                         {selectedVariable.type === "date" ? (
-                          <DatePickerInput
-                            value={selectedVariable.betweenStart ? parse(selectedVariable.betweenStart, "yyyyMMdd", new Date()) : undefined}
-                            onChange={(date) => {
-                              const val = date ? format(date, "yyyyMMdd") : ""
-                              let currentEnd = selectedVariable.betweenEnd || ""
-
-                              // Doğrulama: Bitiş başlangıçtan küçük olamaz
-                              if (val && currentEnd && val > currentEnd) {
-                                currentEnd = val
-                              }
-
+                          <Input
+                            value={selectedVariable.betweenStart || ""}
+                            onChange={(e) => {
+                              const val = e.target.value
                               handleUpdateVariable(selectedVariable.id, {
                                 betweenStart: val,
-                                betweenEnd: currentEnd,
-                                defaultValue: JSON.stringify({ start: val, end: currentEnd })
+                                defaultValue: JSON.stringify({ start: val, end: selectedVariable.betweenEnd || "" })
                               })
                             }}
-
-                            placeholder="Başlangıç"
-                            size="sm"
-                            className="flex-1"
+                            placeholder="Örn: {{now}}"
+                            className="h-8 text-sm"
                           />
                         ) : (
                           <Input
@@ -1358,27 +1406,17 @@ export function VariablesPanel({
                           <span className="text-xs font-medium text-blue-600 dark:text-blue-400">Bitiş:</span>
                         </div>
                         {selectedVariable.type === "date" ? (
-                          <DatePickerInput
-                            value={selectedVariable.betweenEnd ? parse(selectedVariable.betweenEnd, "yyyyMMdd", new Date()) : undefined}
-                            onChange={(date) => {
-                              const val = date ? format(date, "yyyyMMdd") : ""
-                              let currentStart = selectedVariable.betweenStart || ""
-
-                              // Doğrulama: Bitiş başlangıçtan küçük olamaz
-                              if (val && currentStart && val < currentStart) {
-                                currentStart = val
-                              }
-
+                          <Input
+                            value={selectedVariable.betweenEnd || ""}
+                            onChange={(e) => {
+                              const val = e.target.value
                               handleUpdateVariable(selectedVariable.id, {
                                 betweenEnd: val,
-                                betweenStart: currentStart,
-                                defaultValue: JSON.stringify({ start: currentStart, end: val })
+                                defaultValue: JSON.stringify({ start: selectedVariable.betweenStart || "", end: val })
                               })
                             }}
-
-                            placeholder="Bitiş"
-                            size="sm"
-                            className="flex-1"
+                            placeholder="Örn: {{now}}"
+                            className="h-8 text-sm"
                           />
                         ) : (
                           <Input
@@ -1469,11 +1507,12 @@ export function VariablesPanel({
                       onUpdate={(updates) => handleUpdateVariable(selectedVariable.id, updates)}
                     />
                   ) : selectedVariable.type === "date" ? (
-                    /* Tarih tipi için DatePicker */
-                    <DatePickerInput
-                      value={selectedVariable.defaultValue ? parse(selectedVariable.defaultValue, "yyyyMMdd", new Date()) : undefined}
-                      onChange={(date) => handleUpdateVariable(selectedVariable.id, { defaultValue: date ? format(date, "yyyyMMdd") : "" })}
-                      placeholder="Varsayılan tarih seçin"
+                    /* Tarih tipi için Text Input (Template desteği için) */
+                    <Input
+                      value={selectedVariable.defaultValue}
+                      onChange={(e) => handleUpdateVariable(selectedVariable.id, { defaultValue: e.target.value })}
+                      placeholder="Örn: {{now}} -1d"
+                      className="h-9 text-sm font-mono"
                     />
                   ) : (
                     /* Arama kutusu veya Girdi kutusu → Text Input */
@@ -1518,6 +1557,20 @@ export function VariablesPanel({
                   )}
                 </div>
               )}
+
+              {/* Boş Değer Ayarı */}
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Boşken Yazılacak Değer</Label>
+                <Input
+                  value={selectedVariable.emptyValue || ""}
+                  onChange={(e) => handleUpdateVariable(selectedVariable.id, { emptyValue: e.target.value })}
+                  placeholder="Örn: 1=1 veya {{ field }} IS NULL"
+                  className="h-9 text-sm font-mono"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Kriter boş bırakıldığında SQL&apos;e basılacak ifade (Varsayılan: boştur)
+                </p>
+              </div>
 
               {/* Zorunlu */}
               <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-transparent hover:bg-muted/50 transition-colors">

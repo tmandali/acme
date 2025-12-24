@@ -189,7 +189,7 @@ const AceEditor = dynamic(
 interface SQLEditorProps {
   query: string
   onQueryChange: (query: string) => void
-  onRunQuery: () => void
+  onRunQuery: (queryToRun?: string) => void
   onCancelQuery: () => void
   isLoading: boolean
   isDarkMode: boolean
@@ -211,6 +211,20 @@ export function SQLEditor({
   onResizeStart,
   readOnly = false,
 }: SQLEditorProps) {
+  const editorInstanceRef = useRef<any>(null)
+
+  const handleExecute = useCallback(() => {
+    if (readOnly) return
+
+    let queryToRun = query
+    if (editorInstanceRef.current) {
+      const selectedText = editorInstanceRef.current.getSelectedText()
+      if (selectedText && selectedText.trim().length > 0) {
+        queryToRun = selectedText
+      }
+    }
+    onRunQuery(queryToRun)
+  }, [query, onRunQuery, readOnly])
 
 
   return (
@@ -218,6 +232,9 @@ export function SQLEditor({
       {/* SQL Editor */}
       <div className="relative" style={{ height: editorHeight }}>
         <AceEditor
+          onLoad={(editor) => {
+            editorInstanceRef.current = editor
+          }}
           mode="sql_nunjucks"
 
 
@@ -242,6 +259,13 @@ export function SQLEditor({
             fontFamily: "var(--font-geist-mono), monospace",
             readOnly: readOnly,
           }}
+          commands={[
+            {
+              name: 'runQuery',
+              bindKey: { win: 'Ctrl-Enter', mac: 'Command-Enter' },
+              exec: () => handleExecute()
+            }
+          ]}
           style={{
             background: "transparent",
           }}
@@ -250,7 +274,7 @@ export function SQLEditor({
         {/* Run / Cancel Button */}
         <div className="absolute right-4 bottom-4">
           <Button
-            onClick={isLoading ? onCancelQuery : onRunQuery}
+            onClick={isLoading ? onCancelQuery : handleExecute}
             size="icon"
             className={`h-10 w-10 rounded-full text-white ${isLoading
               ? "bg-red-600 hover:bg-red-700"
