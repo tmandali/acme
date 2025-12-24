@@ -1,4 +1,4 @@
-name: Kullanıcı Listesi
-sql: select * from users
+name: ACCOUNTS
+sql: select * from ACCOUNTS
 variables: []
 connectionId: conn_4

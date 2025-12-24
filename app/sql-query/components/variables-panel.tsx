@@ -525,6 +525,7 @@ export function VariablesPanel({
       valuesSource: "custom",
       customValues: "",
       emptyValue: "",
+      placeholder: "",
     }
     onVariablesChange([...variables, newVar])
     onSelectVariable(newVar)
@@ -827,18 +828,6 @@ export function VariablesPanel({
                                   getLabel={getLabel}
                                 />
                                 <div className="flex items-center gap-1 ml-2 shrink-0">
-                                  {selectedValues.length > 0 && (
-                                    <span
-                                      role="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        handleClearAll()
-                                      }}
-                                      className="h-4 w-4 rounded-sm hover:bg-muted flex items-center justify-center"
-                                    >
-                                      <X className="h-3 w-3 text-muted-foreground" />
-                                    </span>
-                                  )}
                                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
                                 </div>
                               </button>
@@ -995,14 +984,14 @@ export function VariablesPanel({
                           <DatePickerInput
                             value={isValidStartDate ? startDateValue : undefined}
                             onChange={(date) => handleBetweenChange("start", date ? format(date, "yyyyMMdd") : "")}
-                            placeholder="Başlangıç"
+                            placeholder={variable.placeholder || "Başlangıç"}
                             className="flex-1"
                           />
                           <ArrowLeftRight className="h-4 w-4 text-muted-foreground shrink-0" />
                           <DatePickerInput
                             value={isValidEndDate ? endDateValue : undefined}
                             onChange={(date) => handleBetweenChange("end", date ? format(date, "yyyyMMdd") : "")}
-                            placeholder="Bitiş"
+                            placeholder={variable.placeholder || "Bitiş"}
                             className="flex-1"
                           />
                         </div>
@@ -1017,7 +1006,7 @@ export function VariablesPanel({
                           type={inputType}
                           value={activeStart}
                           onChange={(e) => handleBetweenChange("start", e.target.value)}
-                          placeholder="Başlangıç"
+                          placeholder={variable.placeholder || "Başlangıç"}
                           className="h-9 text-sm flex-1"
                         />
                         <ArrowLeftRight className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -1025,7 +1014,7 @@ export function VariablesPanel({
                           type={inputType}
                           value={activeEnd}
                           onChange={(e) => handleBetweenChange("end", e.target.value)}
-                          placeholder="Bitiş"
+                          placeholder={variable.placeholder || "Bitiş"}
                           className="h-9 text-sm flex-1"
                         />
                       </div>
@@ -1051,7 +1040,7 @@ export function VariablesPanel({
                             value: date ? format(date, "yyyyMMdd") : ""
                           })
                         }}
-                        placeholder="Tarih seçin..."
+                        placeholder={variable.placeholder || "Tarih seçin..."}
                       />
                     )
                   }
@@ -1063,7 +1052,7 @@ export function VariablesPanel({
                         type="number"
                         value={activeInputValue}
                         onChange={(e) => handleUpdateVariable(variable.id, { value: e.target.value })}
-                        placeholder="Sayı girin..."
+                        placeholder={variable.placeholder || "Sayı girin..."}
                         className="h-9 text-sm"
                       />
                     )
@@ -1087,7 +1076,7 @@ export function VariablesPanel({
                         type="text"
                         value={activeInputValue}
                         onChange={(e) => handleUpdateVariable(variable.id, { value: e.target.value })}
-                        placeholder="Değer girin..."
+                        placeholder={variable.placeholder || "Değer girin..."}
                         className={`h-9 text-sm ${hasRegex && activeInputValue && !isRegexValid ? 'border-destructive focus-visible:ring-destructive' : ''}`}
                       />
                       {hasRegex && activeInputValue && !isRegexValid && (
@@ -1525,6 +1514,17 @@ export function VariablesPanel({
                   )}
                 </div>
               )}
+
+              {/* Watermark (Placeholder) Düzenleme */}
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Watermark (Placeholder)</Label>
+                <Input
+                  value={selectedVariable.placeholder || ""}
+                  onChange={(e) => handleUpdateVariable(selectedVariable.id, { placeholder: e.target.value })}
+                  placeholder="Girdi kutusunda görünecek metin"
+                  className="h-9 text-sm"
+                />
+              </div>
 
               {/* Regex Pattern - Sadece text tipi ve input filter için */}
               {selectedVariable.type === "text" && selectedVariable.filterType === "input" && (

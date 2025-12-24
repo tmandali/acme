@@ -2,21 +2,10 @@ name: Aktif Hesaplar Listesi
 sql: |-
   SELECT *
   FROM ACCOUNTS
-  WHERE {{ACCOUNT_ID |eq}}
+  WHERE {{ID |eq}}
   AND {{SOURCE | eq}}
-  AND {{CREATED_AT | between(end_offset=1)}}
+  AND {{CREATED_AT | between}}
 variables:
-  - id: var_1766260879266_ACCOUNT_ID
-    name: ACCOUNT_ID
-    type: number
-    label: Hesap No
-    filterType: input
-    multiSelect: false
-    defaultValue: ""
-    required: true
-    valuesSource: custom
-    customValues: ""
-    value: ""
   - id: var_1766262645410_SOURCE
     name: SOURCE
     type: number
@@ -39,11 +28,22 @@ variables:
     label: Oluşturma Tarihi
     filterType: between
     multiSelect: false
-    defaultValue: "20250606"
+    defaultValue: ""
     value: ""
     required: true
     valuesSource: custom
     customValues: ""
-    betweenStart: "20251222"
-    betweenEnd: "20251228"
+    betweenStart: "{{now}} -7d"
+    betweenEnd: "{{now}}"
+  - id: var_auto_ID
+    name: ID
+    type: number
+    label: Hesap No
+    filterType: input
+    multiSelect: false
+    defaultValue: ""
+    value: ""
+    required: true
+    valuesSource: custom
+    customValues: ""
 connectionId: conn_1

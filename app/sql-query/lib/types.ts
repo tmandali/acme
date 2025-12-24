@@ -16,6 +16,7 @@ export interface Variable {
   betweenStart?: string // Between filter start value
   betweenEnd?: string // Between filter end value
   emptyValue?: string // SQL to use when value is empty (e.g., '1=1' or 'IS NULL')
+  placeholder?: string // Custom watermark/placeholder text
 }
 
 // YAML dosya yapısı
