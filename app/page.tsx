@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -22,6 +23,10 @@ import {
   CreditCard,
   ShoppingCart,
   BarChart3,
+  Database,
+  Copy,
+  Check,
+  ExternalLink,
 } from "lucide-react"
 
 // Minimal Stat Card
@@ -95,6 +100,150 @@ function ActivityItem({
         <p className="text-xs text-muted-foreground">{description}</p>
       </div>
       <span className="text-xs text-muted-foreground">{time}</span>
+    </div>
+  )
+}
+
+// SQL Query Item
+function SQLQueryItem({
+  slug,
+  name,
+  variablesCount,
+  onCopy,
+}: {
+  slug: string
+  name: string
+  variablesCount: number
+  onCopy: (slug: string) => void
+}) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    onCopy(slug)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <a
+      href={`/sql-query/${slug}`}
+      className="group flex items-center justify-between py-3 px-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
+    >
+      <div className="flex items-center gap-3 flex-1 min-w-0">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">
+          <Database className="h-4 w-4 text-muted-foreground" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">{name}</p>
+          <p className="text-xs text-muted-foreground">
+            {variablesCount > 0 ? `${variablesCount} kriter` : "Kriter yok"}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          onClick={handleCopy}
+        >
+          {copied ? (
+            <Check className="h-3.5 w-3.5 text-green-500" />
+          ) : (
+            <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+          )}
+        </Button>
+        <ExternalLink className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+      </div>
+    </a>
+  )
+}
+
+// SQL Query Dashboard Section
+function SQLQueryDashboard() {
+  const [queries, setQueries] = useState<Array<{
+    slug: string
+    name: string
+    variablesCount: number
+  }>>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    fetch("/api/sql-query/list")
+      .then(res => res.json())
+      .then(data => {
+        setQueries(data.queries || [])
+        setIsLoading(false)
+      })
+      .catch(() => {
+        setIsLoading(false)
+      })
+  }, [])
+
+  const handleCopyLink = (slug: string) => {
+    const url = `${window.location.origin}/sql-query/${slug}`
+    navigator.clipboard.writeText(url)
+  }
+
+  if (isLoading) {
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xs uppercase tracking-wider text-muted-foreground">SQL Sorguları</h2>
+        </div>
+        <div className="space-y-2">
+          <div className="h-16 bg-muted/30 rounded-lg animate-pulse" />
+          <div className="h-16 bg-muted/30 rounded-lg animate-pulse" />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xs uppercase tracking-wider text-muted-foreground">SQL Sorguları</h2>
+        <a
+          href="/sql-query"
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Tümünü gör
+        </a>
+      </div>
+      {queries.length === 0 ? (
+        <div className="border border-dashed rounded-lg p-6 text-center">
+          <Database className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground mb-1">Henüz sorgu yok</p>
+          <a
+            href="/sql-query"
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Yeni sorgu oluştur
+          </a>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {queries.slice(0, 4).map((query) => (
+            <SQLQueryItem
+              key={query.slug}
+              slug={query.slug}
+              name={query.name}
+              variablesCount={query.variablesCount}
+              onCopy={handleCopyLink}
+            />
+          ))}
+          {queries.length > 4 && (
+            <a
+              href="/sql-query"
+              className="flex items-center justify-center py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              +{queries.length - 4} sorgu daha
+            </a>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -215,6 +364,11 @@ export default function Home() {
                   />
                 </div>
               </div>
+            </div>
+
+            {/* SQL Query Dashboard */}
+            <div className="mt-12">
+              <SQLQueryDashboard />
             </div>
 
             {/* Chart Section */}
