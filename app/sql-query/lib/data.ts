@@ -105,12 +105,12 @@ export const sampleResults = Array.from({ length: 50 }, (_, i) => {
   const plans = ["Basic", "Pro", "Enterprise", "Starter"]
   const firstNames = ["Macy", "Kim", "Princess", "Jeramie", "Clay", "Magnus", "Mekhi", "Sarah", "John", "Emma", "Oliver", "Sophia", "Liam", "Isabella", "Noah"]
   const lastNames = ["Kub", "Cormier", "Tillman", "Pfannerstill", "Johnston", "Carroll", "O'Conner", "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis"]
-  
+
   const firstName = firstNames[i % firstNames.length]
   const lastName = lastNames[i % lastNames.length]
   const source = sources[i % sources.length]
   const plan = plans[i % plans.length]
-  
+
   return {
     ID: i + 1,
     EMAIL: `${firstName.toLowerCase()}.${lastName.toLowerCase()}${i}@example.com`,
@@ -125,4 +125,12 @@ export const sampleResults = Array.from({ length: 50 }, (_, i) => {
     ACTIVE_SUBSCRIPTION: i % 3 !== 0,
   }
 })
+
+// Örnek bağlantılar
+export const sampleConnections = [
+  { id: "conn_1", name: "Production ERP", type: "PostgreSQL" },
+  { id: "conn_2", name: "Analytics Warehouse", type: "BigQuery" },
+  { id: "conn_3", name: "Customer Portal DB", type: "MySQL" },
+  { id: "conn_4", name: "Legacy Mainframe", type: "Oracle" },
+]
 

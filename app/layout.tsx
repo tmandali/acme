@@ -19,6 +19,8 @@ export const metadata: Metadata = {
   description: "Modern kurumsal kaynak planlama sistemi",
 };
 
+import { Toaster } from "@/components/ui/sonner"
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -37,6 +39,7 @@ export default function RootLayout({
         >
           <CompanyProvider>
             {children}
+            <Toaster />
           </CompanyProvider>
         </ThemeProvider>
       </body>

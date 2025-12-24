@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react"
 import yaml from "js-yaml"
+import { toast } from "sonner"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
     Breadcrumb,
@@ -15,6 +16,19 @@ import {
     SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover"
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+} from "@/components/ui/command"
 import { Button } from "@/components/ui/button"
 import {
     Database,
@@ -23,6 +37,8 @@ import {
     Settings2,
     Copy,
     Check,
+    Save,
+    ChevronsUpDown,
 } from "lucide-react"
 
 // Bileşenler
@@ -33,7 +49,7 @@ import { SQLEditor } from "./sql-editor"
 
 // Tipler ve Veriler
 import type { Variable, QueryFile } from "../lib/types"
-import { sampleSchema, sampleResults } from "../lib/data"
+import { sampleSchema, sampleResults, sampleConnections } from "../lib/data"
 import { processJinjaTemplate } from "../lib/utils"
 
 interface SQLQueryPageClientProps {
@@ -60,6 +76,8 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     const [isResizingPanel, setIsResizingPanel] = useState(false)
     const [activeTab, setActiveTab] = useState<"edit" | "preview" | "api">("edit")
     const [mounted, setMounted] = useState(false)
+    const [selectedConnectionId, setSelectedConnectionId] = useState(initialData?.connectionId || sampleConnections[0].id)
+    const [isConnOpen, setIsConnOpen] = useState(false)
     const containerRef = useRef<HTMLDivElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const queryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -129,6 +147,43 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         URL.revokeObjectURL(url)
     }, [queryName, query, variables])
 
+    // Sunucuya kaydet
+    const handleSaveToServer = useCallback(async () => {
+        setIsLoading(true)
+        try {
+            const response = await fetch("/api/sql-query/save", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    name: queryName,
+                    sql: query,
+                    variables: variables,
+                    slug: slug, // Eğer varsa güncelleme yapacak
+                    connectionId: selectedConnectionId,
+                }),
+            })
+
+            const data = await response.json()
+
+            if (data.success) {
+                // Eğer yeni bir sorguysa ve slug değiştiyse URL'i güncelle
+                if (!slug && data.slug) {
+                    window.history.pushState({}, "", `/sql-query/${data.slug}`)
+                }
+                toast.success("Sorgu başarıyla kaydedildi.")
+            } else {
+                toast.error(`Hata: ${data.error || "Bilinmeyen bir hata oluştu"}`)
+            }
+        } catch (error) {
+            console.error("Sorgu kaydedilirken hata oluştu:", error)
+            toast.error("Sorgu kaydedilirken bir hata oluştu.")
+        } finally {
+            setIsLoading(false)
+        }
+    }, [queryName, query, variables, slug])
+
     // YAML dosyasından yükle
     const handleLoadFromYaml = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0]
@@ -163,7 +218,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                 }
             } catch (error) {
                 console.error("YAML dosyası yüklenirken hata oluştu:", error)
-                alert("YAML dosyası yüklenirken hata oluştu. Lütfen geçerli bir dosya seçin.")
+                toast.error("YAML dosyası yüklenirken hata oluştu. Lütfen geçerli bir dosya seçin.")
             }
         }
         reader.readAsText(file)
@@ -325,7 +380,9 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         const missingRequired = missingVariables.filter(v => v.required)
         if (missingRequired.length > 0) {
             const missingLabels = missingRequired.map(v => v.label).join(", ")
-            alert(`Zorunlu kriterlerde değer eksik: ${missingLabels}\n\nLütfen Kriterler panelinden bu alanlara değer girin.`)
+            toast.error(`Zorunlu kriterlerde değer eksik: ${missingLabels}`, {
+                description: "Lütfen Kriterler panelinden bu alanlara değer girin."
+            })
             // Kriterler panelini aç
             setVariablesPanelOpen(true)
             setSchemaPanelOpen(false)
@@ -494,6 +551,10 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                             onChange={handleLoadFromYaml}
                             className="hidden"
                         />
+                        <Button variant="outline" size="sm" className="gap-2 text-primary border-primary hover:bg-primary/10" onClick={handleSaveToServer}>
+                            <Save className="h-3.5 w-3.5" />
+                            Kaydet
+                        </Button>
                         <Button variant="outline" size="sm" className="gap-2" onClick={handleOpenFileClick}>
                             <Upload className="h-3.5 w-3.5" />
                             Yükle
@@ -512,9 +573,58 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                         {/* Database Selector & Editor - Tam ekranda gizle */}
                         {!isResultsFullscreen && (
                             <div className={`flex flex-col ${activeTab === 'api' ? 'flex-1 overflow-hidden' : ''}`} ref={containerRef}>
-                                {/* Database Selector */}
+                                {/* Database Selector Area */}
                                 <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
-                                    <span className="text-xs text-muted-foreground">Sample Database</span>
+                                    <div className="flex items-center gap-2">
+                                        <Database className="h-3.5 w-3.5 text-muted-foreground" />
+                                        <Popover open={isConnOpen} onOpenChange={setIsConnOpen}>
+                                            <PopoverTrigger asChild>
+                                                <Button
+                                                    variant="ghost"
+                                                    role="combobox"
+                                                    aria-expanded={isConnOpen}
+                                                    className="h-7 w-[220px] justify-between text-xs px-2 hover:bg-muted/50 font-normal shadow-none border-none"
+                                                >
+                                                    <div className="flex items-center gap-2 truncate">
+                                                        {selectedConnectionId
+                                                            ? sampleConnections.find((c) => c.id === selectedConnectionId)?.name
+                                                            : "Bağlantı seçin..."}
+                                                    </div>
+                                                    <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-[280px] p-0" align="start">
+                                                <Command>
+                                                    <CommandInput placeholder="Bağlantı ara..." className="h-8 text-xs" />
+                                                    <CommandList>
+                                                        <CommandEmpty className="py-2 text-xs text-center text-muted-foreground">Bağlantı bulunamadı.</CommandEmpty>
+                                                        <CommandGroup>
+                                                            {sampleConnections.map((conn) => (
+                                                                <CommandItem
+                                                                    key={conn.id}
+                                                                    value={conn.name}
+                                                                    onSelect={() => {
+                                                                        setSelectedConnectionId(conn.id)
+                                                                        setIsConnOpen(false)
+                                                                    }}
+                                                                    className="text-xs py-2"
+                                                                >
+                                                                    <Check
+                                                                        className={`mr-2 h-3.5 w-3.5 transition-opacity ${selectedConnectionId === conn.id ? "opacity-100" : "opacity-0"
+                                                                            }`}
+                                                                    />
+                                                                    <div className="flex flex-col">
+                                                                        <span>{conn.name}</span>
+                                                                        <span className="text-[10px] text-muted-foreground uppercase font-mono">{conn.type}</span>
+                                                                    </div>
+                                                                </CommandItem>
+                                                            ))}
+                                                        </CommandGroup>
+                                                    </CommandList>
+                                                </Command>
+                                            </PopoverContent>
+                                        </Popover>
+                                    </div>
                                     <div className="flex items-center gap-4">
                                         <Tabs
                                             value={activeTab}

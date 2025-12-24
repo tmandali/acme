@@ -1,0 +1,4 @@
+name: Kullanıcılar
+sql: select * from users
+variables: []
+connectionId: conn_1

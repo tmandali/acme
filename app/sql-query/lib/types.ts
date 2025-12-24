@@ -22,6 +22,7 @@ export interface QueryFile {
   name: string
   sql: string
   variables: Variable[]
+  connectionId?: string
 }
 
 // Şema Tipleri
