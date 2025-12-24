@@ -43,16 +43,19 @@ const data = {
       title: "Home",
       url: "/",
       icon: Home,
+      color: "text-indigo-500",
     },
     {
       title: "Selling",
       url: "/selling",
       icon: TrendingUp,
+      color: "text-emerald-500",
     },
     {
       title: "SQL Query",
       url: "/sql-query",
       icon: Database,
+      color: "text-orange-500",
     },
   ],
 }
@@ -74,7 +77,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <SidebarMenuButton size="lg" className="cursor-pointer">
-                    <div className="flex aspect-square size-8 items-center justify-center rounded-md bg-foreground text-background text-sm font-medium">
+                    <div className="flex aspect-square size-8 items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-medium">
                       <Building2 className="h-4 w-4" />
                     </div>
                     <div className="flex flex-col gap-0.5 leading-none">
