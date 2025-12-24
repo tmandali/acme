@@ -31,8 +31,10 @@ export async function POST(request: NextRequest) {
 
         console.log(`Started workflow ${handle.workflowId}`);
 
+        const startTime = Date.now();
         // Wait for result
         const result = await handle.result();
+        const duration = Date.now() - startTime;
 
         // Check if result is binary (Arrow IPC)
         let responseData = result;
@@ -47,7 +49,7 @@ export async function POST(request: NextRequest) {
             success: true,
             data: responseData,
             isBinary: isBinary,
-            execution_time_ms: 0, // We could track this if needed
+            execution_time_ms: duration,
         });
     } catch (error: any) {
         if (error.message?.includes('Kullanıcı tarafından durduruldu')) {

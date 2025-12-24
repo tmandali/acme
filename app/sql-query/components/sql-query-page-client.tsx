@@ -86,6 +86,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     const fileInputRef = useRef<HTMLInputElement>(null)
     const queryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
     const queryStatusRef = useRef<"completed" | "cancelled" | null>(null)
+    const abortControllerRef = useRef<AbortController | null>(null)
 
     // Basit Kopyalama Butonu Bileşeni
     const CopyButton = ({ text }: { text: string }) => {
@@ -365,6 +366,8 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     }, [variables])
 
     const handleRunQuery = useCallback((queryToRun?: string) => {
+        if (isLoading) return
+
         const targetQuery = typeof queryToRun === 'string' ? queryToRun : query
         // Jinja template işleme
         const { processedQuery, replacements, missingVariables } = processQuery(targetQuery)
@@ -395,8 +398,17 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
             return
         }
 
+        // Önceki isteği iptal et (varsa)
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
         setIsLoading(true)
         setResults([])
+        setExecutionTime(undefined)
         setQueryStatus(null)
         queryStatusRef.current = null
 
@@ -443,6 +455,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                     headers: {
                         "Content-Type": "application/json",
                     },
+                    signal: controller.signal,
                     body: JSON.stringify({
                         query: processedQuery,
                         workflowId: workflowId
@@ -500,7 +513,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                     setResults([])
                 }
 
-                setExecutionTime(result.execution_time_ms || 42)
+                setExecutionTime(result.execution_time_ms)
                 setQueryStatus("completed")
                 queryStatusRef.current = "completed"
             } catch (error: any) {
@@ -511,6 +524,10 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                     error.message?.includes('Kullanıcı tarafından durduruldu')
                 ) {
                     console.log(">>> [Frontend] Query cancelled or aborted, skipping error toast.");
+                    // Eğer AbortError ise loading durumunu temizleme (yeni request zaten açmıştır)
+                    if (error.name !== 'AbortError') {
+                        setIsLoading(false);
+                    }
                     return;
                 }
 
@@ -518,8 +535,12 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                 toast.error(error.message || "Temporal bağlantı hatası")
                 setQueryStatus(null)
             } finally {
-                setIsLoading(false)
-                setCurrentWorkflowId(null)
+                // Sadece mevcut controller ise loading'i kapat (yarış durumunu önle)
+                if (abortControllerRef.current === controller) {
+                    setIsLoading(false)
+                    setCurrentWorkflowId(null)
+                    abortControllerRef.current = null
+                }
             }
         }
 

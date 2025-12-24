@@ -4,7 +4,7 @@ from temporalio import workflow
 # Import the activity via string name to avoid circular imports or sandbox issues
 # Or just use the activity itself if it's imported correctly
 with workflow.unsafe.imports_passed_through():
-    from activities.sql_activities import execute_sql_activity
+    from activities import execute_sql_activity
 
 @workflow.defn
 class ExecuteSQLWorkflow:

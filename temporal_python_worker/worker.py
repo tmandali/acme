@@ -4,8 +4,8 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 # Import our activities and workflows
-from activities.sql_activities import execute_sql_activity, set_db_conn
-from workflows.sql_workflow import ExecuteSQLWorkflow
+from activities import execute_sql_activity, set_db_conn
+from workflows import ExecuteSQLWorkflow
 
 # Initialize a simple in-memory SQLite database with sample data
 def init_db():

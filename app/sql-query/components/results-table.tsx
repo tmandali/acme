@@ -50,9 +50,20 @@ export function ResultsTable({
   }, [isLoading])
 
   const formatTime = (ms: number) => {
-    const seconds = Math.floor(ms / 1000)
-    const milliseconds = Math.floor((ms % 1000) / 100)
-    return `${seconds}.${milliseconds}s`
+    if (ms < 1000) return `${ms}ms`
+
+    const h = Math.floor(ms / 3600000)
+    const m = Math.floor((ms % 3600000) / 60000)
+    const s = Math.floor((ms % 60000) / 1000)
+    const msRemainder = ms % 1000
+
+    const parts = []
+    if (h > 0) parts.push(`${h}sa`)
+    if (m > 0 || h > 0) parts.push(`${m}dk`)
+    parts.push(`${s}sn`)
+    if (msRemainder > 0 && h === 0) parts.push(`${msRemainder}ms`)
+
+    return parts.join(" ")
   }
 
   if (isLoading) {
@@ -111,7 +122,7 @@ export function ResultsTable({
           </span>
           {executionTime && (
             <span className="text-[10px] text-muted-foreground">
-              • {executionTime}ms
+              • {formatTime(executionTime)}
             </span>
           )}
         </div>
