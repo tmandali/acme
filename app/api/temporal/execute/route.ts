@@ -34,13 +34,27 @@ export async function POST(request: NextRequest) {
         // Wait for result
         const result = await handle.result();
 
+        // Check if result is binary (Arrow IPC)
+        let responseData = result;
+        let isBinary = false;
+
+        if (Buffer.isBuffer(result) || result instanceof Uint8Array) {
+            responseData = Buffer.from(result).toString("base64");
+            isBinary = true;
+        }
+
         return NextResponse.json({
             success: true,
-            data: result,
+            data: responseData,
+            isBinary: isBinary,
             execution_time_ms: 0, // We could track this if needed
         });
     } catch (error: any) {
-        console.error("Temporal error:", error);
+        if (error.message?.includes('Kullanıcı tarafından durduruldu')) {
+            console.log(`>>> [API] Workflow terminated by user: ${error.message}`);
+        } else {
+            console.error("Temporal error:", error);
+        }
         return NextResponse.json(
             { error: error.message || "Temporal execution failed" },
             { status: 500 }

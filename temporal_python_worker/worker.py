@@ -1,9 +1,11 @@
 import asyncio
 import sqlite3
-from temporalio import activity, workflow
 from temporalio.client import Client
 from temporalio.worker import Worker
-from datetime import timedelta
+
+# Import our activities and workflows
+from activities.sql_activities import execute_sql_activity, set_db_conn
+from workflows.sql_workflow import ExecuteSQLWorkflow
 
 # Initialize a simple in-memory SQLite database with sample data
 def init_db():
@@ -27,9 +29,7 @@ def init_db():
     # 4. ORDERS
     cursor.execute("CREATE TABLE ORDERS (ID INTEGER PRIMARY KEY, USER_ID INTEGER, PRODUCT_ID INTEGER, QUANTITY INTEGER, TOTAL DECIMAL, CREATED_AT TEXT)")
 
-    # Insert Sample Data for ACCOUNTS
-    sources = ["Facebook", "Twitter", "Google", "LinkedIn", "Instagram", "Direct"]
-    plans = ["Basic", "Pro", "Enterprise", "Starter"]
+    # Insert Sample Data
     first_names = ["Macy", "Kim", "Princess", "Jeramie", "Clay", "Magnus", "Mekhi", "Sarah", "John", "Emma"]
     last_names = ["Kub", "Cormier", "Tillman", "Pfannerstill", "Johnston", "Carroll", "O'Conner", "Smith", "Johnson", "Williams"]
     
@@ -38,67 +38,24 @@ def init_db():
         ln = last_names[i % len(last_names)]
         cursor.execute("INSERT INTO ACCOUNTS VALUES (?,?,?,?,?,?,?,?,?)", (
             i + 1, f"{fn.lower()}.{ln.lower()}{i}@example.com", fn, ln,
-            plans[i % len(plans)], sources[i % len(sources)], (i * 7) % 50 + 1,
+            "Pro" if i % 2 == 0 else "Basic", "Twitter" if i % 3 == 0 else "Direct", (i * 7) % 50 + 1,
             f"2020-09-{str((i % 28) + 1).zfill(2)}", i % 3 != 0
         ))
 
-    # Insert Sample Data for PEOPLE (Users)
     for i in range(20):
         cursor.execute("INSERT INTO PEOPLE VALUES (?,?,?,?,?)", (
             i + 1, f"{first_names[i%10]} {last_names[i%10]}", f"user{i}@acme.com", "Istanbul", "2023-01-01"
         ))
     
-    # Create an alias for PEOPLE as 'users' since it's common
     cursor.execute("CREATE VIEW users AS SELECT * FROM PEOPLE")
-    
     conn.commit()
     return conn
 
-# Shared DB connection for the demo
-db_conn = init_db()
-
-# Activities
-@activity.defn
-async def execute_sql_activity(query: str) -> list:
-    print(f"\n>>> [Worker] Executed SQL: {query}")
-    try:
-        # SQLite doesn't support schema prefixes like 'public.'
-        # Let's clean up common PostgreSQL syntax for the mock DB
-        cleaned_query = query.replace("public.", "").replace("PUBLIC.", "")
-        
-        cursor = db_conn.cursor()
-        cursor.execute(cleaned_query)
-        
-        # Get column names
-        columns = [column[0] for column in cursor.description]
-        
-        # Fetch results
-        rows = cursor.fetchall()
-        
-        # Map to list of dicts
-        data = [dict(zip(columns, row)) for row in rows]
-        
-        print(f">>> [Worker] Query successful. Returning {len(data)} rows")
-        return data
-    except Exception as e:
-        print(f">>> [Worker] Query Error: {str(e)}")
-        return [{"ERROR": str(e)}]
-
-# Workflows
-@workflow.defn
-class ExecuteSQLWorkflow:
-    @workflow.run
-    async def run(self, query: str) -> list:
-        print(f">>> [Workflow] Starting execution for query: {query[:50]}...")
-        result = await workflow.execute_activity(
-            execute_sql_activity,
-            query,
-            start_to_close_timeout=timedelta(seconds=30),
-        )
-        print(f">>> [Workflow] Finished.")
-        return result
-
 async def main():
+    # Initialize DB and share it with activities
+    db_conn = init_db()
+    set_db_conn(db_conn)
+
     # Connect to Temporal
     try:
         client = await Client.connect("localhost:7233")
@@ -111,8 +68,10 @@ async def main():
         task_queue="sql-tasks-v2",
         workflows=[ExecuteSQLWorkflow],
         activities=[execute_sql_activity],
+        # Optionally disable sandbox if imports still fail, but moving to files usually fixes it
+        # workflow_runner=UnsandboxedWorkflowRunner(), 
     )
-    print("Worker (v2) started. Waiting for tasks on 'sql-tasks-v2'...")
+    print("Worker started. Registered ExecuteSQLWorkflow and execute_sql_activity.")
     await worker.run()
 
 if __name__ == "__main__":

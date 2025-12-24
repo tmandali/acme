@@ -85,6 +85,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     const containerRef = useRef<HTMLDivElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const queryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+    const queryStatusRef = useRef<"completed" | "cancelled" | null>(null)
 
     // Basit Kopyalama Butonu Bileşeni
     const CopyButton = ({ text }: { text: string }) => {
@@ -397,6 +398,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         setIsLoading(true)
         setResults([])
         setQueryStatus(null)
+        queryStatusRef.current = null
 
         // Konsola detaylı bilgi yazdır
         console.log("╔══════════════════════════════════════════════════════════════")
@@ -450,15 +452,49 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
 
                 if (!response.ok) {
                     const error = await response.json()
-                    throw new Error(error.error || "Sorgu çalıştırılırken bir hata oluştu")
+                    const errorMsg = error.error || "Sorgu çalıştırılırken bir hata oluştu"
+
+                    // Eğer kullanıcı durdurduysa sessizce bitir (hata fırlatma ki overlay çıkmasın)
+                    if (errorMsg.includes('Kullanıcı tarafından durduruldu') || queryStatusRef.current === "cancelled") {
+                        console.log(">>> [Frontend] Query stopped by user (api response)");
+                        setIsLoading(false)
+                        setCurrentWorkflowId(null)
+                        return
+                    }
+
+                    throw new Error(errorMsg)
                 }
 
                 const result = await response.json()
                 console.log(">>> [Frontend] API Data received:", result);
 
-                if (result.success && Array.isArray(result.data)) {
-                    console.log(`>>> [Frontend] Setting ${result.data.length} results`);
-                    setResults(result.data)
+                if (result.success) {
+                    let finalData = result.data;
+
+                    if (result.isBinary && typeof result.data === 'string') {
+                        // Decode Arrow IPC from Base64
+                        const binaryStr = atob(result.data);
+                        const bytes = new Uint8Array(binaryStr.length);
+                        for (let i = 0; i < binaryStr.length; i++) {
+                            bytes[i] = binaryStr.charCodeAt(i);
+                        }
+
+                        // Import apache-arrow dynamically to avoid bundle bloat if not used
+                        const { tableFromIPC } = await import('apache-arrow');
+                        const table = tableFromIPC(bytes);
+
+                        // Convert to JS objects for compatibility with existing UI
+                        // Note: For very large datasets, we should use the Arrow table directly with a virtualized list
+                        finalData = table.toArray().map(row => row.toJSON());
+                        console.log(`>>> [Frontend] Decoded Arrow IPC: ${finalData.length} rows`);
+                    }
+
+                    if (Array.isArray(finalData)) {
+                        console.log(`>>> [Frontend] Setting ${finalData.length} results`);
+                        setResults(finalData)
+                    } else {
+                        setResults([])
+                    }
                 } else {
                     console.warn(">>> [Frontend] Unexpected data format:", result);
                     setResults([])
@@ -466,9 +502,14 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
 
                 setExecutionTime(result.execution_time_ms || 42)
                 setQueryStatus("completed")
+                queryStatusRef.current = "completed"
             } catch (error: any) {
-                // Eğer kullanıcı durdurduysa hata gösterme
-                if (queryStatus === "cancelled" || error.name === 'AbortError') {
+                // Eğer kullanıcı durdurduysa veya hata mesajı "Kullanıcı tarafından durduruldu" ise hata gösterme
+                if (
+                    queryStatusRef.current === "cancelled" ||
+                    error.name === 'AbortError' ||
+                    error.message?.includes('Kullanıcı tarafından durduruldu')
+                ) {
                     console.log(">>> [Frontend] Query cancelled or aborted, skipping error toast.");
                     return;
                 }
@@ -503,6 +544,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                     setIsLoading(false)
                     setResults([])
                     setQueryStatus("cancelled")
+                    queryStatusRef.current = "cancelled"
                     setCurrentWorkflowId(null)
                 }
             } catch (error) {
