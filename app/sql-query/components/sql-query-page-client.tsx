@@ -47,7 +47,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     const [isLoading, setIsLoading] = useState(false)
     const [executionTime, setExecutionTime] = useState<number>()
     const [queryStatus, setQueryStatus] = useState<"completed" | "cancelled" | null>(null)
-    const [schemaPanelOpen, setSchemaPanelOpen] = useState(true)
+    const [schemaPanelOpen, setSchemaPanelOpen] = useState(false)
     const [variablesPanelOpen, setVariablesPanelOpen] = useState(false)
     const [variables, setVariables] = useState<Variable[]>(initialData?.variables || [])
     const [selectedVariable, setSelectedVariable] = useState<Variable | null>(null)
