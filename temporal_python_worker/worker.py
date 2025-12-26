@@ -58,7 +58,7 @@ async def main():
 
     # Connect to Temporal
     try:
-        client = await Client.connect("localhost:7233")
+        client = await Client.connect("127.0.0.1:7233")
     except Exception as e:
         print(f"Failed to connect to Temporal: {e}")
         return

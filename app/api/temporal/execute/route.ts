@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
         const workflowId = providedId || `sql-query-${uuidv4()}`;
 
         // Connect to Temporal
-        const connection = await Connection.connect({ address: "localhost:7233" });
+        const connection = await Connection.connect({ address: "127.0.0.1:7233" });
         const client = new Client({ connection });
 
         // Start Workflow

@@ -1,0 +1,6 @@
+CLI 1.5.1 (Server 1.29.1, UI 2.42.1)
+
+Server:  localhost:7233
+UI:      http://localhost:8233
+Metrics: http://localhost:54742/metrics
+time=2025-12-27T01:50:47.713 level=ERROR msg="Persistent store operation failure" component=matching-engine wf-task-queue-name=/_sys/temporal-sys-dlq-activity-tq/2 wf-task-queue-type=Workflow wf-namespace=temporal-system worker-build-id=_unversioned_ backlog=classic store-operation=update-task-queue error="context canceled"

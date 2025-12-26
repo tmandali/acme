@@ -1,0 +1,1 @@
+SELECT * FROM test_table WHERE 1=1 {% if name %} AND name = {{ name | quote }} {% endif %}

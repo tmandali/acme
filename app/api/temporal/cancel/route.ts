@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "workflowId is required" }, { status: 400 });
         }
 
-        const connection = await Connection.connect({ address: "localhost:7233" });
+        const connection = await Connection.connect({ address: "127.0.0.1:7233" });
         const client = new Client({ connection });
 
         const handle = client.workflow.getHandle(workflowId);
