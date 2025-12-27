@@ -408,21 +408,48 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                 body: JSON.stringify(payload)
             });
 
-            const result = await response.json();
-            const duration = Date.now() - startTime;
+            if (!response.body) throw new Error("No response body");
 
-            if (result.success) {
-                setResults(result.data || [])
-                setQueryStatus("completed")
-                toast.success("Sorgu tamamlandı")
-            } else {
-                toast.error(`Hata: ${result.error}`)
-                setQueryStatus(null)
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || "";
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    try {
+                        const msg = JSON.parse(line);
+                        if (msg.type === "metadata") {
+                            if (!msg.success) throw new Error(msg.error);
+                        } else if (msg.type === "batch") {
+                            setResults(prev => [...prev, ...(msg.data || [])]);
+                        } else if (msg.type === "error") {
+                            throw new Error(msg.error);
+                        }
+                    } catch (e) {
+                        // Parse error or error throwing
+                        console.error("Stream processing error:", e);
+                        if (e instanceof Error && e.message) toast.error(e.message);
+                    }
+                }
             }
-            setExecutionTime(duration)
+
+            const duration = Date.now() - startTime;
+            setExecutionTime(duration);
+            setQueryStatus("completed");
+            toast.success("Sorgu tamamlandı");
+
         } catch (e: any) {
             console.error("Flight execution error:", e)
-            toast.error("Sunucu hatası")
+            toast.error("Sunucu hatası: " + e.message)
+            setQueryStatus(null)
         } finally {
             setIsLoading(false)
         }

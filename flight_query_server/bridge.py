@@ -26,14 +26,30 @@ def execute_query(client, command_json):
         descriptor = pa.flight.FlightDescriptor.for_command(command_json.encode('utf-8'))
         info = client.get_flight_info(descriptor)
         reader = client.do_get(info.endpoints[0].ticket)
-        table = reader.read_all()
         
-        # Convert to list of dicts for JSON output
-        # For huge datasets, we might want to stream, but for UI, full JSON is fine for now.
-        data = table.to_pylist()
-        print(json.dumps({"success": True, "data": data}))
+        # Signal start of stream
+        print(json.dumps({"type": "metadata", "success": True}))
+        sys.stdout.flush()
+
+        while True:
+            try:
+                chunk = reader.read_chunk()
+                if chunk.data:
+                    data = chunk.data.to_pylist()
+                    if data:
+                        print(json.dumps({"type": "batch", "data": data}))
+                        sys.stdout.flush()
+            except StopIteration:
+                break
+            except Exception as e:
+                # Handle potential errors during reading
+                print(json.dumps({"type": "error", "error": str(e)}))
+                sys.stdout.flush()
+                break
+
     except Exception as e:
-        print(json.dumps({"success": False, "error": str(e)}))
+        print(json.dumps({"type": "error", "error": str(e)}))
+        sys.stdout.flush()
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

@@ -30,7 +30,16 @@ export function ResultsTable({
   onToggleFullscreen
 }: ResultsTableProps) {
   const [elapsedTime, setElapsedTime] = useState(0)
+  const [visibleCount, setVisibleCount] = useState(1000)
   const startTimeRef = useRef<number | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    // Reset visible count when loading starts or results are cleared
+    if (isLoading || results.length === 0) {
+      setVisibleCount(1000)
+    }
+  }, [isLoading, results.length])
 
   useEffect(() => {
     if (isLoading) {
@@ -49,6 +58,20 @@ export function ResultsTable({
     }
   }, [isLoading])
 
+  const handleScroll = () => {
+    const el = containerRef.current
+    if (el) {
+      const { scrollTop, scrollHeight, clientHeight } = el
+      // Load more when closer to bottom
+      if (scrollHeight - scrollTop - clientHeight < 500) {
+        setVisibleCount(prev => {
+          if (prev >= results.length) return prev;
+          return Math.min(prev + 1000, results.length)
+        })
+      }
+    }
+  }
+
   const formatTime = (ms: number) => {
     if (ms < 1000) return `${ms}ms`
 
@@ -66,7 +89,7 @@ export function ResultsTable({
     return parts.join(" ")
   }
 
-  if (isLoading) {
+  if (isLoading && results.length === 0) { // Only show full loader if NO data yet
     return (
       <div className="h-full flex flex-col bg-background">
         {/* Results Header */}
@@ -111,6 +134,7 @@ export function ResultsTable({
   }
 
   const columns = results.length > 0 ? Object.keys(results[0]) : []
+  const visibleResults = results.slice(0, visibleCount)
 
   return (
     <div className="h-full flex flex-col bg-background">
@@ -118,7 +142,8 @@ export function ResultsTable({
       <div className="flex items-center justify-between h-8 px-2 border-b bg-muted/30">
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-muted-foreground">
-            {results.length} satır
+            {results.length > visibleCount ? `${visibleCount} / ${results.length} satır gösteriliyor` : `${results.length} satır`}
+            {isLoading && <span className="ml-2 animate-pulse">(Yükleniyor...)</span>}
           </span>
           {executionTime && (
             <span className="text-[10px] text-muted-foreground">
@@ -140,7 +165,11 @@ export function ResultsTable({
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-auto border-t">
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-auto border-t"
+        onScroll={handleScroll}
+      >
         {results.length > 0 ? (
           <table className="text-xs border-collapse w-full min-w-full">
             <thead className="sticky top-0 z-10">
@@ -157,7 +186,7 @@ export function ResultsTable({
               </tr>
             </thead>
             <tbody>
-              {results.map((row, idx) => (
+              {visibleResults.map((row, idx) => (
                 <tr key={idx} className="border-b last:border-b-0 hover:bg-muted/30">
                   {columns.map((col) => (
                     <td
@@ -174,6 +203,13 @@ export function ResultsTable({
                   ))}
                 </tr>
               ))}
+              {visibleCount < results.length && (
+                <tr>
+                  <td colSpan={columns.length} className="p-2 text-center text-muted-foreground text-[10px]">
+                    Daha fazla veri yükleniyor...
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         ) : (

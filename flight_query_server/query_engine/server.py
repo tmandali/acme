@@ -62,12 +62,31 @@ class FlightQueryServer(pa.flight.FlightServerBase):
         conn.execute("CREATE TABLE IF NOT EXISTS sales_invoices (id INTEGER, invoice_no TEXT, customer_name TEXT, amount REAL, date TEXT)")
         conn.execute("CREATE TABLE IF NOT EXISTS ACCOUNTS (ID INTEGER, SOURCE TEXT, CREATED_AT TEXT)")
         
-        if conn.execute("SELECT COUNT(*) FROM ACCOUNTS").fetchone()[0] == 0:
-            conn.executemany("INSERT INTO ACCOUNTS VALUES (?, ?, ?)", [
-                (101, '1', '20231220'),
-                (102, '2', '20231225'),
-            ])
+        # Check if we have enough data, if not regenerate
+        count_accounts = conn.execute("SELECT COUNT(*) FROM ACCOUNTS").fetchone()[0]
+        if count_accounts < 50000:
+            logger.info("Generating large dataset for ACCOUNTS...")
+            conn.execute("DELETE FROM ACCOUNTS")
+            
+            # Generate 50,000 rows
+            data = []
+            for i in range(1, 50001):
+                # source 1-5, date varies slightly
+                source = str((i % 5) + 1) 
+                day = 10 + (i % 20)
+                date_str = f"202312{day}"
+                data.append((i, source, date_str))
+                
+                # Batch insert every 1000
+                if len(data) >= 1000:
+                    conn.executemany("INSERT INTO ACCOUNTS VALUES (?, ?, ?)", data)
+                    data = []
+            
+            if data:
+                conn.executemany("INSERT INTO ACCOUNTS VALUES (?, ?, ?)", data)
+            
             conn.commit()
+            logger.info("Generated 50,000 account records.")
         
         if conn.execute("SELECT COUNT(*) FROM sales_invoices").fetchone()[0] == 0:
             data = [
