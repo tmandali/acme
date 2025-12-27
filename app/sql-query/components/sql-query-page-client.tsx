@@ -20,30 +20,10 @@ import {
     SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-} from "@/components/ui/popover"
-import {
-    Command,
-    CommandEmpty,
-    CommandGroup,
-    CommandInput,
-    CommandItem,
-    CommandList,
-} from "@/components/ui/command"
 import { Button } from "@/components/ui/button"
 import {
     Database,
-    Download,
-    Upload,
     Settings2,
-    Copy,
-    Check,
-    Save,
-    ChevronsUpDown,
-    FileText,
 } from "lucide-react"
 
 // Bileşenler
@@ -51,6 +31,9 @@ import { SchemaPanel } from "./schema-panel"
 import { VariablesPanel } from "./variables-panel"
 import { ResultsTable } from "./results-table"
 import { SQLEditor } from "./sql-editor"
+import { TemplateSelector } from "./template-selector"
+import { ConnectionSelector } from "./connection-selector"
+import { CopyButton } from "./copy-button"
 
 // Tipler ve Veriler
 import type { Variable, QueryFile, TemplateMetadata } from "../lib/types"
@@ -92,31 +75,6 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     const queryStatusRef = useRef<"completed" | "cancelled" | null>(null)
     const abortControllerRef = useRef<AbortController | null>(null)
 
-    // Basit Kopyalama Butonu Bileşeni
-    const CopyButton = ({ text }: { text: string }) => {
-        const [copied, setCopied] = useState(false)
-
-        const handleCopy = () => {
-            navigator.clipboard.writeText(text)
-            setCopied(true)
-            setTimeout(() => setCopied(false), 2000)
-        }
-
-        return (
-            <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                onClick={handleCopy}
-            >
-                {copied ? (
-                    <Check className="h-3 w-3 text-green-500" />
-                ) : (
-                    <Copy className="h-3 w-3 text-muted-foreground" />
-                )}
-            </Button>
-        )
-    }
 
     // YAML dosyasına kaydet
     const handleSaveToYaml = useCallback(() => {
@@ -579,73 +537,23 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                     </div>
                     <div className="flex items-center gap-2">
                         {/* Template Selector */}
-                        {templates.length > 0 && (
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button variant="outline" size="sm" className="gap-2 border-dashed">
-                                        <FileText className="h-3.5 w-3.5" />
-                                        {activeTemplate ? activeTemplate.name : "Şablon Seç"}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-[300px] p-0" align="end">
-                                    <Command>
-                                        <CommandInput placeholder="Şablon ara..." />
-                                        <CommandList>
-                                            <CommandEmpty>Şablon bulunamadı.</CommandEmpty>
-                                            <CommandGroup heading="Rapor Şablonları">
-                                                <CommandItem
-                                                    onSelect={() => {
-                                                        setActiveTemplate(null)
-                                                        setQueryName("Yeni sorgu")
-                                                    }}
-                                                    className="cursor-pointer"
-                                                >
-                                                    <div className="flex flex-col">
-                                                        <span>Boş Sorgu</span>
-                                                        <span className="text-[10px] text-muted-foreground">Sıfırdan SQL yaz</span>
-                                                    </div>
-                                                    {activeTemplate === null && <Check className="ml-auto h-4 w-4" />}
-                                                </CommandItem>
-                                                {templates.map(t => (
-                                                    <CommandItem
-                                                        key={t.name}
-                                                        onSelect={() => handleTemplateSelect(t)}
-                                                        className="cursor-pointer"
-                                                    >
-                                                        <div className="flex flex-col">
-                                                            <span>{t.description || t.name}</span>
-                                                            <span className="text-[10px] text-muted-foreground">{t.name}</span>
-                                                        </div>
-                                                        {activeTemplate?.name === t.name && <Check className="ml-auto h-4 w-4" />}
-                                                    </CommandItem>
-                                                ))}
-                                            </CommandGroup>
-                                        </CommandList>
-                                    </Command>
-                                </PopoverContent>
-                            </Popover>
-                        )}
-
-                        {/* Gizli file input */}
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept=".yaml,.yml"
-                            onChange={handleLoadFromYaml}
-                            className="hidden"
+                        <TemplateSelector
+                            templates={templates}
+                            activeTemplate={activeTemplate}
+                            onSelectTemplate={(t) => {
+                                if (t) {
+                                    handleTemplateSelect(t)
+                                } else {
+                                    setActiveTemplate(null)
+                                    setQueryName("Yeni sorgu")
+                                }
+                            }}
+                            onSaveToServer={handleSaveToServer}
+                            onOpenFile={handleOpenFileClick}
+                            onSaveToYaml={handleSaveToYaml}
+                            fileInputRef={fileInputRef as any}
+                            handleLoadFromYaml={handleLoadFromYaml}
                         />
-                        <Button variant="outline" size="sm" className="gap-2 text-primary border-primary hover:bg-primary/10" onClick={handleSaveToServer}>
-                            <Save className="h-3.5 w-3.5" />
-                            Kaydet
-                        </Button>
-                        <Button variant="outline" size="sm" className="gap-2" onClick={handleOpenFileClick}>
-                            <Upload className="h-3.5 w-3.5" />
-                            Yükle
-                        </Button>
-                        <Button variant="outline" size="sm" className="gap-2" onClick={handleSaveToYaml}>
-                            <Download className="h-3.5 w-3.5" />
-                            İndir
-                        </Button>
                     </div>
                 </header>
 
@@ -661,53 +569,16 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                     <div className="flex items-center gap-2">
                                         <Database className="h-3.5 w-3.5 text-muted-foreground" />
                                         {mounted && (
-                                            <Popover open={isConnOpen} onOpenChange={setIsConnOpen}>
-                                                <PopoverTrigger asChild>
-                                                    <Button
-                                                        variant="ghost"
-                                                        role="combobox"
-                                                        aria-expanded={isConnOpen}
-                                                        className="h-7 w-[220px] justify-between text-xs px-2 hover:bg-muted/50 font-normal shadow-none border-none"
-                                                    >
-                                                        <div className="flex items-center gap-2 truncate">
-                                                            {selectedConnectionId
-                                                                ? sampleConnections.find((c) => c.id === selectedConnectionId)?.name
-                                                                : "Bağlantı seçin..."}
-                                                        </div>
-                                                        <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
-                                                    </Button>
-                                                </PopoverTrigger>
-                                                <PopoverContent className="w-[220px] p-0" align="start">
-                                                    <Command>
-                                                        <CommandInput placeholder="Bağlantı ara..." className="h-8 text-xs" />
-                                                        <CommandList>
-                                                            <CommandEmpty className="py-2 text-xs text-center text-muted-foreground">Bağlantı bulunamadı.</CommandEmpty>
-                                                            <CommandGroup>
-                                                                {sampleConnections.map((conn) => (
-                                                                    <CommandItem
-                                                                        key={conn.id}
-                                                                        value={conn.name}
-                                                                        onSelect={() => {
-                                                                            setSelectedConnectionId(conn.id)
-                                                                            setIsConnOpen(false)
-                                                                        }}
-                                                                        className="text-xs py-2"
-                                                                    >
-                                                                        <Check
-                                                                            className={`mr-2 h-3.5 w-3.5 transition-opacity ${selectedConnectionId === conn.id ? "opacity-100" : "opacity-0"
-                                                                                }`}
-                                                                        />
-                                                                        <div className="flex flex-col">
-                                                                            <span>{conn.name}</span>
-                                                                            <span className="text-[10px] text-muted-foreground uppercase font-mono">{conn.type}</span>
-                                                                        </div>
-                                                                    </CommandItem>
-                                                                ))}
-                                                            </CommandGroup>
-                                                        </CommandList>
-                                                    </Command>
-                                                </PopoverContent>
-                                            </Popover>
+                                            <ConnectionSelector
+                                                connections={sampleConnections}
+                                                selectedId={selectedConnectionId}
+                                                onSelect={(id) => {
+                                                    setSelectedConnectionId(id)
+                                                    setIsConnOpen(false)
+                                                }}
+                                                open={isConnOpen}
+                                                onOpenChange={setIsConnOpen}
+                                            />
                                         )}
                                     </div>
                                     <div className="flex items-center gap-4">
