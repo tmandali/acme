@@ -1,4 +1,5 @@
 "use client"
+// Force rebuild
 
 import { useState, useCallback, useRef, useEffect } from "react"
 import yaml from "js-yaml"
@@ -42,6 +43,7 @@ import {
     Check,
     Save,
     ChevronsUpDown,
+    FileText,
 } from "lucide-react"
 
 // Bileşenler
@@ -51,7 +53,7 @@ import { ResultsTable } from "./results-table"
 import { SQLEditor } from "./sql-editor"
 
 // Tipler ve Veriler
-import type { Variable, QueryFile } from "../lib/types"
+import type { Variable, QueryFile, TemplateMetadata } from "../lib/types"
 import { sampleSchema, sampleResults, sampleConnections } from "../lib/data"
 import { processJinjaTemplate } from "../lib/utils"
 
@@ -82,6 +84,8 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     const [selectedConnectionId, setSelectedConnectionId] = useState(initialData?.connectionId || sampleConnections[0].id)
     const [isConnOpen, setIsConnOpen] = useState(false)
     const [currentWorkflowId, setCurrentWorkflowId] = useState<string | null>(null)
+    const [templates, setTemplates] = useState<TemplateMetadata[]>([])
+    const [activeTemplate, setActiveTemplate] = useState<TemplateMetadata | null>(null)
     const containerRef = useRef<HTMLDivElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const queryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -256,6 +260,43 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
 
     useEffect(() => {
         setMounted(true)
+
+        // Fetch Flight Templates
+        fetch("/api/flight/list")
+            .then(res => res.json())
+            .then(data => {
+                if (Array.isArray(data)) {
+                    setTemplates(data)
+                }
+            })
+            .catch(err => console.error("Failed to fetch templates:", err))
+    }, [])
+
+    const handleTemplateSelect = useCallback((template: TemplateMetadata) => {
+        setActiveTemplate(template)
+        setQueryName(template.description || template.name)
+        setQuery(template.sql)
+
+        // Convert params to variables
+        const newVars: Variable[] = template.params.map(p => ({
+            id: `var_tmpl_${p.name}`,
+            name: p.name,
+            label: p.label || p.name,
+            type: p.type as any || "text",
+            filterType: "input",
+            multiSelect: false,
+            defaultValue: p.default || "",
+            value: "",
+            required: p.required,
+            valuesSource: "custom",
+            customValues: "",
+            placeholder: p.default
+        }))
+
+        setVariables(newVars)
+        setVariablesPanelOpen(true)
+        setSchemaPanelOpen(false)
+        toast.info(`Şablon yüklendi: ${template.name}`)
     }, [])
 
     // SQL'deki Nunjucks (Jinja) pattern'lerinden otomatik kriter oluştur (debounced)
@@ -365,215 +406,74 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         return processJinjaTemplate(sqlQuery, variables)
     }, [variables])
 
-    const handleRunQuery = useCallback((queryToRun?: string) => {
+    const handleRunQuery = useCallback(async (queryToRun?: string) => {
         if (isLoading) return
 
         const targetQuery = typeof queryToRun === 'string' ? queryToRun : query
-        // Jinja template işleme
-        const { processedQuery, replacements, missingVariables } = processQuery(targetQuery)
 
-        // Query'deki tüm template değişkenlerini bul (Nunjucks uyumlu)
-        const templatePattern = /\{\{\s*(\w+)(?::(BEGIN|END))?(?:\.\w+)?\s*\}\}|\{%\s*(?:if|elif|for)\s+(\w+)/g
-
-        const allTemplateVars: string[] = []
-        let match
-        while ((match = templatePattern.exec(targetQuery)) !== null) {
-            const varName = match[1] || match[3]
-            if (varName && !allTemplateVars.includes(varName)) {
-                allTemplateVars.push(varName)
-            }
-        }
-
-
-        // Zorunlu kriterlerde eksik değer kontrolü
+        // Check for missing required variables (using frontend logic for validation)
+        const { missingVariables } = processQuery(targetQuery)
         const missingRequired = missingVariables.filter(v => v.required)
         if (missingRequired.length > 0) {
             const missingLabels = missingRequired.map(v => v.label).join(", ")
             toast.error(`Zorunlu kriterlerde değer eksik: ${missingLabels}`, {
                 description: "Lütfen Kriterler panelinden bu alanlara değer girin."
             })
-            // Kriterler panelini aç
             setVariablesPanelOpen(true)
             setSchemaPanelOpen(false)
             return
         }
 
-        // Önceki isteği iptal et (varsa)
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-        }
-
-        const controller = new AbortController();
-        abortControllerRef.current = controller;
-
         setIsLoading(true)
         setResults([])
         setExecutionTime(undefined)
         setQueryStatus(null)
-        queryStatusRef.current = null
 
-        // Konsola detaylı bilgi yazdır
-        console.log("╔══════════════════════════════════════════════════════════════")
-        console.log("║ 🔍 SQL Sorgusu Çalıştırılıyor")
-        console.log("╠══════════════════════════════════════════════════════════════")
-        console.log("║ 📋 Tanımlı Değişkenler:")
-        variables.forEach((v, i) => {
-            const activeVal = v.value || v.defaultValue
-            console.log(`║   ${i + 1}. name: "${v.name}", label: "${v.label}", type: "${v.type}", value: "${activeVal}"`)
-        })
-        console.log("╠══════════════════════════════════════════════════════════════")
-        console.log(`║ 📝 ${typeof queryToRun === 'string' ? "Seçili" : "Orijinal"} Sorgu:`)
-        console.log("║", targetQuery.split('\n').join('\n║ '))
+        // Prepare criteria
+        const criteria: Record<string, any> = {};
+        variables.forEach(v => {
+            const val = v.value || v.defaultValue;
+            if (val) criteria[v.name] = val;
+        });
 
-        if (allTemplateVars.length > 0) {
-            console.log("╠══════════════════════════════════════════════════════════════")
-            console.log("║ 🔄 Template Değişkenleri:")
-            allTemplateVars.forEach((varName) => {
-                const isMissing = missingVariables.some(v => v.name === varName)
-                if (replacements[varName]) {
-                    console.log(`║   ✅ {{${varName}}} → ${replacements[varName]}`)
-                } else if (isMissing) {
-                    console.log(`║   ⚠️ {{${varName}}} → (boş - değer atanmamış)`)
-                }
-            })
-        }
+        const payload = activeTemplate
+            ? { template: activeTemplate.name, criteria }
+            : { query: targetQuery, criteria };
 
-        console.log("╠══════════════════════════════════════════════════════════════")
-        console.log("║ ✅ İşlenmiş (Final) Sorgu:")
-        console.log("║", processedQuery.split('\n').join('\n║ '))
-        console.log("╚══════════════════════════════════════════════════════════════")
+        console.log(">>> [Frontend] Running Query via Flight:", payload);
 
-        // Temporal API'sini çağır
-        const runTemporalQuery = async () => {
-            const workflowId = `sql-query-${Math.random().toString(36).substring(2, 11)}`
-            setCurrentWorkflowId(workflowId)
+        try {
+            const startTime = Date.now()
+            const response = await fetch("/api/flight/execute", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
 
-            console.log(">>> [Frontend] Sending query to Temporal API:", processedQuery, "workflowId:", workflowId);
-            try {
-                const response = await fetch("/api/temporal/execute", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    signal: controller.signal,
-                    body: JSON.stringify({
-                        query: processedQuery,
-                        workflowId: workflowId
-                    }),
-                })
-                console.log(">>> [Frontend] API Response status:", response.status);
+            const result = await response.json();
+            const duration = Date.now() - startTime;
 
-                if (!response.ok) {
-                    const error = await response.json()
-                    const errorMsg = error.error || "Sorgu çalıştırılırken bir hata oluştu"
-
-                    // Eğer kullanıcı durdurduysa sessizce bitir (hata fırlatma ki overlay çıkmasın)
-                    if (errorMsg.includes('Kullanıcı tarafından durduruldu') || queryStatusRef.current === "cancelled") {
-                        console.log(">>> [Frontend] Query stopped by user (api response)");
-                        setIsLoading(false)
-                        setCurrentWorkflowId(null)
-                        return
-                    }
-
-                    throw new Error(errorMsg)
-                }
-
-                const result = await response.json()
-                console.log(">>> [Frontend] API Data received:", result);
-
-                if (result.success) {
-                    let finalData = result.data;
-
-                    if (result.isBinary && typeof result.data === 'string') {
-                        // Decode Arrow IPC from Base64
-                        const binaryStr = atob(result.data);
-                        const bytes = new Uint8Array(binaryStr.length);
-                        for (let i = 0; i < binaryStr.length; i++) {
-                            bytes[i] = binaryStr.charCodeAt(i);
-                        }
-
-                        // Import apache-arrow dynamically to avoid bundle bloat if not used
-                        const { tableFromIPC } = await import('apache-arrow');
-                        const table = tableFromIPC(bytes);
-
-                        // Convert to JS objects for compatibility with existing UI
-                        // Note: For very large datasets, we should use the Arrow table directly with a virtualized list
-                        finalData = table.toArray().map(row => row.toJSON());
-                        console.log(`>>> [Frontend] Decoded Arrow IPC: ${finalData.length} rows`);
-                    }
-
-                    if (Array.isArray(finalData)) {
-                        console.log(`>>> [Frontend] Setting ${finalData.length} results`);
-                        setResults(finalData)
-                    } else {
-                        setResults([])
-                    }
-                } else {
-                    console.warn(">>> [Frontend] Unexpected data format:", result);
-                    setResults([])
-                }
-
-                setExecutionTime(result.execution_time_ms)
+            if (result.success) {
+                setResults(result.data || [])
                 setQueryStatus("completed")
-                queryStatusRef.current = "completed"
-            } catch (error: any) {
-                // Eğer kullanıcı durdurduysa veya hata mesajı "Kullanıcı tarafından durduruldu" ise hata gösterme
-                if (
-                    queryStatusRef.current === "cancelled" ||
-                    error.name === 'AbortError' ||
-                    error.message?.includes('Kullanıcı tarafından durduruldu')
-                ) {
-                    console.log(">>> [Frontend] Query cancelled or aborted, skipping error toast.");
-                    // Eğer AbortError ise loading durumunu temizleme (yeni request zaten açmıştır)
-                    if (error.name !== 'AbortError') {
-                        setIsLoading(false);
-                    }
-                    return;
-                }
-
-                console.error("Temporal hatası:", error)
-                toast.error(error.message || "Temporal bağlantı hatası")
+                toast.success("Sorgu tamamlandı")
+            } else {
+                toast.error(`Hata: ${result.error}`)
                 setQueryStatus(null)
-            } finally {
-                // Sadece mevcut controller ise loading'i kapat (yarış durumunu önle)
-                if (abortControllerRef.current === controller) {
-                    setIsLoading(false)
-                    setCurrentWorkflowId(null)
-                    abortControllerRef.current = null
-                }
             }
+            setExecutionTime(duration)
+        } catch (e: any) {
+            console.error("Flight execution error:", e)
+            toast.error("Sunucu hatası")
+        } finally {
+            setIsLoading(false)
         }
-
-        runTemporalQuery()
-    }, [query, processQuery, variables])
-
+    }, [isLoading, query, variables, activeTemplate, processQuery])
 
     const handleCancelQuery = useCallback(async () => {
-        if (currentWorkflowId) {
-            console.log(">>> [Frontend] Cancelling workflow:", currentWorkflowId);
-            try {
-                const response = await fetch("/api/temporal/cancel", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({ workflowId: currentWorkflowId }),
-                })
-
-                if (response.ok) {
-                    toast.info("Sorgu durduruldu")
-                    setIsLoading(false)
-                    setResults([])
-                    setQueryStatus("cancelled")
-                    queryStatusRef.current = "cancelled"
-                    setCurrentWorkflowId(null)
-                }
-            } catch (error) {
-                console.error("Durdurma hatası:", error)
-                toast.error("Sorgu durdurulamadı")
-            }
-        }
-    }, [currentWorkflowId])
+        // Flight currently doesn't support cancellation via this bridge
+        toast.info("İptal işlemi şu an desteklenmiyor")
+    }, [])
 
     const handleTableClick = useCallback((identifier: string) => {
         // Tablo veya kolon adını editöre ekle
@@ -678,6 +578,54 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                         </Breadcrumb>
                     </div>
                     <div className="flex items-center gap-2">
+                        {/* Template Selector */}
+                        {templates.length > 0 && (
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button variant="outline" size="sm" className="gap-2 border-dashed">
+                                        <FileText className="h-3.5 w-3.5" />
+                                        {activeTemplate ? activeTemplate.name : "Şablon Seç"}
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[300px] p-0" align="end">
+                                    <Command>
+                                        <CommandInput placeholder="Şablon ara..." />
+                                        <CommandList>
+                                            <CommandEmpty>Şablon bulunamadı.</CommandEmpty>
+                                            <CommandGroup heading="Rapor Şablonları">
+                                                <CommandItem
+                                                    onSelect={() => {
+                                                        setActiveTemplate(null)
+                                                        setQueryName("Yeni sorgu")
+                                                    }}
+                                                    className="cursor-pointer"
+                                                >
+                                                    <div className="flex flex-col">
+                                                        <span>Boş Sorgu</span>
+                                                        <span className="text-[10px] text-muted-foreground">Sıfırdan SQL yaz</span>
+                                                    </div>
+                                                    {activeTemplate === null && <Check className="ml-auto h-4 w-4" />}
+                                                </CommandItem>
+                                                {templates.map(t => (
+                                                    <CommandItem
+                                                        key={t.name}
+                                                        onSelect={() => handleTemplateSelect(t)}
+                                                        className="cursor-pointer"
+                                                    >
+                                                        <div className="flex flex-col">
+                                                            <span>{t.description || t.name}</span>
+                                                            <span className="text-[10px] text-muted-foreground">{t.name}</span>
+                                                        </div>
+                                                        {activeTemplate?.name === t.name && <Check className="ml-auto h-4 w-4" />}
+                                                    </CommandItem>
+                                                ))}
+                                            </CommandGroup>
+                                        </CommandList>
+                                    </Command>
+                                </PopoverContent>
+                            </Popover>
+                        )}
+
                         {/* Gizli file input */}
                         <input
                             ref={fileInputRef}
@@ -1035,6 +983,6 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                     )}
                 </div>
             </SidebarInset>
-        </SidebarProvider>
+        </SidebarProvider >
     )
 }

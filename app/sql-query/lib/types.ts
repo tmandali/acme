@@ -50,3 +50,18 @@ export interface Schema {
   tables: Table[]
 }
 
+// Flight Template Tipleri
+export interface TemplateParam {
+  name: string;
+  label?: string;
+  type: string;
+  required: boolean;
+  default?: string;
+}
+
+export interface TemplateMetadata {
+  name: string; // dosya adı (template id)
+  description?: string;
+  sql: string;
+  params: TemplateParam[];
+}

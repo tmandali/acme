@@ -19,6 +19,18 @@ from query_engine.utils import evaluate_template_value
 
 # --- Birim Testler (Unit Tests) ---
 
+def test_sqlite_to_arrow_type():
+    """SQLite tip isimlerinin Arrow tiplerine dönüşümünü test eder."""
+    from query_engine.types import sqlite_to_arrow_type
+    assert sqlite_to_arrow_type("INTEGER") == pa.int64()
+    assert sqlite_to_arrow_type("INT") == pa.int64()
+    assert sqlite_to_arrow_type("REAL") == pa.float64()
+    assert sqlite_to_arrow_type("FLOAT") == pa.float64()
+    assert sqlite_to_arrow_type("DOUBLE") == pa.float64()
+    assert sqlite_to_arrow_type("BOOLEAN") == pa.bool_()
+    assert sqlite_to_arrow_type("VARCHAR") == pa.string()
+    assert sqlite_to_arrow_type(None) == pa.string()
+
 def test_sql_wrapper_logic():
     """SqlWrapper'ın string dönüşümü ve sarmalama mantığını test eder."""
     wrapper = SqlWrapper("20230101", "MY_COL")
@@ -195,3 +207,104 @@ def test_empty_yaml_field(server):
     
     with pytest.raises(Exception):
         client.get_flight_info(descriptor)
+
+def test_list_flights(server):
+    """list_flights metodunun şablonları ve metaverilerini doğru döndürdüğünü test eder."""
+    client = pa.flight.connect(server)
+    
+    # Sunucudan uçuşları (şablonları) iste
+    flights = list(client.list_flights())
+    
+    # En az bir şablon dönmeli (test_query.yaml oluşturulmuştu)
+    assert len(flights) >= 1
+    
+    # İlk şablonun içeriğini kontrol et
+    found = False
+    for flight in flights:
+        cmd = json.loads(flight.descriptor.command.decode('utf-8'))
+        if cmd["template"] == "test_query.yaml":
+            found = True
+            metadata = cmd.get("metadata", {})
+            # TemplateMetadata yapısına uygun mu?
+            assert metadata["name"] == "test_query.yaml"
+            assert "params" in metadata
+            break
+            
+    assert found, "test_query.yaml sunucu tarafından listelenmedi."
+
+def test_server_batching_and_types(server):
+    """Büyük veri setinde batching mantığını ve tip çıkarımını doğrular."""
+    # Test DB'ye çok sayıda ve farklı tiplerde veri ekle
+    conn = sqlite3.connect("test_data_integ.db")
+    conn.execute("CREATE TABLE types_test (id INTEGER, amount REAL, is_active BOOLEAN)")
+    
+    # 1500 satır ekle (Batch size genelde 1000 civarıdır)
+    data = [(i, float(i)*1.1, i % 2 == 0) for i in range(1500)]
+    conn.executemany("INSERT INTO types_test VALUES (?, ?, ?)", data)
+    conn.commit()
+    conn.close()
+    
+    # Template oluştur
+    with open("test_templates/types_query.yaml", "w") as f:
+        f.write("sql: \"SELECT * FROM types_test\"")
+        
+    client = pa.flight.connect(server)
+    command = {"template": "types_query.yaml", "criteria": {}}
+    descriptor = pa.flight.FlightDescriptor.for_command(json.dumps(command).encode('utf-8'))
+    
+    # Veriyi çek
+    info = client.get_flight_info(descriptor)
+    reader = client.do_get(info.endpoints[0].ticket)
+    
+    # Batch kontrolü (En az 2 batch olmalı: 1000 + 500)
+    batches = []
+    total_rows = 0
+    for chunk in reader:
+        batches.append(chunk.data)
+        total_rows += chunk.data.num_rows
+        
+    assert total_rows == 1500
+    assert len(batches) >= 2
+    
+    # Tip kontrolü (Schema inference)
+    # Not: SQLite'ta BOOLEAN aslında 0/1 integer'dır, Arrow buna int64 diyebilir. 
+    # Ancak REAL -> double olmalı.
+    table = pa.Table.from_batches(batches)
+    schema = table.schema
+    
+    # Basit tip kontrolü (Python objelerinden çıkarım nedeniyle)
+    # id (int) -> int64
+    # amount (float) -> double
+    assert pa.types.is_float64(schema.field("amount").type) or pa.types.is_float32(schema.field("amount").type)
+    assert pa.types.is_integer(schema.field("id").type)
+
+def test_list_flights_resilience(server):
+    """Bozuk YAML dosyalarının listeleme işlemini durdurmadığını test eder."""
+    # Bozuk bir YAML dosyası oluştur
+    with open("test_templates/broken.yaml", "w") as f:
+        f.write(":: BU GEÇERSİZ BİR YAML DOSYASIDIR ::")
+        
+    client = pa.flight.connect(server)
+    flights = list(client.list_flights())
+    
+    # Sunucu hatayı yutup (loglayıp) diğer geçerli şablonları dönmeli
+    # test_query.yaml ve types_query.yaml hala gelmeli
+    valid_templates = [json.loads(f.descriptor.command.decode('utf-8'))["template"] for f in flights]
+    assert "test_query.yaml" in valid_templates
+    assert "broken.yaml" not in valid_templates
+
+def test_runtime_sql_error(server):
+    """SQL syntax hatası veya olmayan tablo hatasının do_get içinde yakalandığını doğrular."""
+    # Hatalı SQL içeren şablon
+    with open("test_templates/bad_sql.yaml", "w") as f:
+        f.write("sql: \"SELECT * FROM non_existent_table_xyz\"")
+        
+    client = pa.flight.connect(server)
+    command = {"template": "bad_sql.yaml", "criteria": {}}
+    descriptor = pa.flight.FlightDescriptor.for_command(json.dumps(command).encode('utf-8'))
+    
+    # get_flight_info aşamasında LIMIT 0 ile şema çıkarılırken hata alınmalı
+    with pytest.raises(Exception) as excinfo:
+        client.get_flight_info(descriptor)
+    
+    assert "Flight implementation error" in str(excinfo.value) or "no such table" in str(excinfo.value)

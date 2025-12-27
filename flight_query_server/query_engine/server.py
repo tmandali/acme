@@ -3,11 +3,12 @@ import sqlite3
 import pathlib
 import yaml
 from datetime import datetime
+from dataclasses import asdict
 import pyarrow as pa
 import pyarrow.flight
 from jinja2 import Environment, FileSystemLoader
 
-from .models import QueryCommand, SqlWrapper
+from .models import QueryCommand, SqlWrapper, TemplateMetadata
 from .filters import (
     filter_quote, filter_sql, filter_between, filter_eq, filter_add_days,
     filter_gt, filter_lt, filter_gte, filter_lte, filter_ne, filter_like,
@@ -78,10 +79,54 @@ class FlightQueryServer(pa.flight.FlightServerBase):
             conn.commit()
         conn.close()
 
+
+    def list_flights(self, context, criteria):
+        """
+        Mevcut sorgu şablonlarını listeler.
+        """
+        seen_templates = set()
+        
+        for query_dir in self.query_dirs:
+            if not query_dir.exists():
+                continue
+                
+            for path in query_dir.glob("*.yaml"):
+                if path.name in seen_templates: continue
+                
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        config = yaml.safe_load(f)
+                    
+                    meta = TemplateMetadata.from_dict(path.name, config)
+                    seen_templates.add(path.name)
+                    
+                    descriptor_data = {"template": meta.name, "metadata": asdict(meta)}
+                    descriptor = pa.flight.FlightDescriptor.for_command(json.dumps(descriptor_data).encode('utf-8'))
+                    
+                    yield pa.flight.FlightInfo(
+                        pa.schema([]), descriptor, 
+                        [pa.flight.FlightEndpoint(descriptor.command, [self.location])], 
+                        -1, -1
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to load template {path}: {e}")
+                    continue
+
     def _render_query(self, cmd: QueryCommand):
         criteria = {k: SqlWrapper(v, k, jinja_env=self.jinja_env) for k, v in cmd.criteria.items()}
         
-        # Dosya yolunu belirle
+        # Ad-hoc SQL execution (via cmd.query)
+        if cmd.query:
+            try:
+                template = self.jinja_env.from_string(cmd.query)
+                sql = template.render(**criteria)
+                logger.debug(f"Rendered Ad-hoc SQL:\n{sql}")
+                return sql
+            except Exception as e:
+                logger.exception("Error rendering ad-hoc SQL")
+                raise
+
+        # File-based Execution (via cmd.template)
         yaml_path = None
         for d in self.query_dirs:
             p = d / cmd.template
