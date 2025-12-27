@@ -121,6 +121,7 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }
@@ -137,7 +138,45 @@
   0% {
     opacity: 0;
   }
+
   100% {
     opacity: 1;
   }
+}
+
+/* Glide Data Grid Custom Styles */
+.glide-data-grid-custom {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Ensure smooth scrolling */
+.glide-data-grid-custom .dvn-scroller {
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbar for grid */
+.glide-data-grid-custom .dvn-scroller::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.glide-data-grid-custom .dvn-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.glide-data-grid-custom .dvn-scroller::-webkit-scrollbar-thumb {
+  background: #6b7280;
+  /* Neutral gray */
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.glide-data-grid-custom .dvn-scroller::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}
+
+/* Fix for overlay positioning */
+.glide-data-grid-custom .gdg-overlay {
+  z-index: 100;
 }

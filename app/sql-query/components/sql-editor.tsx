@@ -214,7 +214,7 @@ export function SQLEditor({
   const editorInstanceRef = useRef<any>(null)
 
   const handleExecute = useCallback(() => {
-    if (readOnly) return
+
 
     let queryToRun = query
     if (editorInstanceRef.current) {

@@ -41,6 +41,50 @@ export const columnTypeConfig: Record<string, { icon: React.ElementType; color: 
   JSON: { icon: FileJson, color: "text-cyan-500" },
 }
 
+
+// Re-usable variables to ignore (Built-in keywords or globals)
+export const IGNORED_KEYWORDS = new Set([
+  'if', 'else', 'elif', 'endif', 'for', 'in', 'endfor',
+  'set', 'filter', 'endfilter', 'macro', 'endmacro',
+  'include', 'import', 'extends', 'block', 'endblock',
+  'and', 'or', 'not', 'true', 'false', 'null', 'none',
+  'now', 'loop', 'range', 'item'
+])
+
+export function findVariablesInQuery(query: string): string[] {
+  if (typeof query !== 'string') return []
+
+  const foundVariables: string[] = []
+
+  // 1. {{ ... }} içindeki değişkenleri bul (Fonksiyonel kolon ismi ve filtre argümanları desteği ile)
+  // Örn: {{ VAR('COL') | between(offset=1) }}
+  const expressionMatches = query.matchAll(/\{\{\s*([\w.]+)(?:\((?:['"]?)(.*?)(?:['"]?)\))?(?:\s*\|\s*[\w]+(?:\(.*?\))?)*\s*\}\}/g)
+
+  for (const match of expressionMatches) {
+    // match[1] değişken adını, match[2] ise opsiyonel kolon adını yakalar
+    const baseVar = match[1].split('.')[0]
+    if (baseVar && !IGNORED_KEYWORDS.has(baseVar) && !foundVariables.includes(baseVar)) {
+      foundVariables.push(baseVar)
+    }
+  }
+
+  // 2. {% ... %} içindeki değişkenleri bul (if, elif, for in)
+  const tagMatches = query.matchAll(/\{%\s*(?:if|elif|for|set)\s+([^%]+)%}/g)
+  for (const match of tagMatches) {
+    const content = match[1]
+    // İçerikteki kelimeleri ayır ve değişken olabilecekleri bul
+    // Örn: "user == 'admin'", "item in items"
+    const words = content.match(/\b[a-zA-Z_]\w*\b/g) || []
+    for (const word of words) {
+      if (word && !IGNORED_KEYWORDS.has(word) && !foundVariables.includes(word)) {
+        foundVariables.push(word)
+      }
+    }
+  }
+
+  return foundVariables
+}
+
 // Değişken tipi için ikon
 export const variableTypeConfig: Record<Variable["type"], { icon: React.ElementType; label: string; color: string }> = {
   text: { icon: Type, label: "Metin", color: "text-blue-500" },

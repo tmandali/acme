@@ -30,6 +30,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        suppressHydrationWarning
       >
         <ThemeProvider
           attribute="class"
@@ -40,6 +41,7 @@ export default function RootLayout({
           <CompanyProvider>
             {children}
             <Toaster />
+            <div id="portal" />
           </CompanyProvider>
         </ThemeProvider>
       </body>

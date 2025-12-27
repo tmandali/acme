@@ -59,6 +59,12 @@ export interface TemplateParam {
   default?: string;
 }
 
+export interface Connection {
+  id: string
+  name: string
+  type: string
+}
+
 export interface TemplateMetadata {
   name: string; // dosya adı (template id)
   description?: string;

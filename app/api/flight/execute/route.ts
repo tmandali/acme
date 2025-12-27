@@ -13,30 +13,61 @@ export async function POST(request: NextRequest) {
     const stream = new ReadableStream({
         start(controller) {
             const child = spawn(pythonPath, [scriptPath, "exec", commandJson]);
+            let isClosed = false;
+
+            const safeEnqueue = (chunk: any) => {
+                if (isClosed) return;
+                try {
+                    controller.enqueue(chunk);
+                } catch (e) {
+                    console.error("Controller enqueue error:", e);
+                    isClosed = true;
+                }
+            };
+
+            const safeClose = () => {
+                if (isClosed) return;
+                try {
+                    controller.close();
+                } catch (e) {
+                    // Ignore if already closed
+                } finally {
+                    isClosed = true;
+                }
+            };
+
+            const safeError = (err: any) => {
+                if (isClosed) return;
+                try {
+                    controller.error(err);
+                } catch (e) {
+                    // ignore
+                } finally {
+                    isClosed = true;
+                }
+            }
+
 
             child.stdout.on('data', (chunk) => {
-                controller.enqueue(chunk);
+                safeEnqueue(chunk);
             });
 
             child.stderr.on('data', (chunk) => {
                 const errorMsg = chunk.toString();
-                console.error("Bridge Stderr:", errorMsg);
-                // Optionally send error as a special chunk if needed, 
-                // but since we are streaming NDJSON, we can maybe ignore stderr unless it crashes
+                // console.error("Bridge Stderr:", errorMsg);
+                // Only log critical errors or find a way to pass them to UI if needed
             });
 
             child.on('close', (code) => {
                 if (code !== 0) {
-                    // If it crashed, we might have already sent some data.
-                    // The client will handle incomplete stream or parse errors.
                     console.error(`Bridge exited with code ${code}`);
                 }
-                controller.close();
+                safeClose();
             });
 
             child.on('error', (err) => {
                 console.error("Bridge Spawn Error:", err);
-                controller.error(err);
+                safeError(err);
             });
         }
     });

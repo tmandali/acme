@@ -1,4 +1,29 @@
 name: ACCOUNTS
-sql: select * from ACCOUNTS
-variables: []
+sql: |-
+  SELECT * 
+  FROM ACCOUNTS 
+  WHERE {{zip | gte}} AND {{CITY | eq}}
+variables:
+  - id: var_auto_zip
+    name: zip
+    type: number
+    label: zip
+    filterType: input
+    multiSelect: false
+    defaultValue: "1"
+    value: ""
+    required: true
+    valuesSource: custom
+    customValues: ""
+  - id: var_auto_CITY
+    name: CITY
+    type: text
+    label: CITY
+    filterType: input
+    multiSelect: false
+    defaultValue: Ricehaven
+    value: ""
+    required: true
+    valuesSource: custom
+    customValues: ""
 connectionId: conn_4

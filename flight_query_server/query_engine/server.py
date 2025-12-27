@@ -7,6 +7,7 @@ from dataclasses import asdict
 import pyarrow as pa
 import pyarrow.flight
 from jinja2 import Environment, FileSystemLoader
+from faker import Faker
 
 from .models import QueryCommand, SqlWrapper, TemplateMetadata
 from .filters import (
@@ -54,48 +55,82 @@ class FlightQueryServer(pa.flight.FlightServerBase):
         self.jinja_env.filters["finish"] = filter_end   # Alias
         
         self.jinja_env.globals["now"] = datetime.now().strftime("%Y%m%d")
+        self.jinja_env.globals["zip"] = zip
         self._init_db()
 
     def _init_db(self):
         logger.info(f"Initializing database at {self.db_path}")
         conn = sqlite3.connect(self.db_path)
-        conn.execute("CREATE TABLE IF NOT EXISTS sales_invoices (id INTEGER, invoice_no TEXT, customer_name TEXT, amount REAL, date TEXT)")
-        conn.execute("CREATE TABLE IF NOT EXISTS ACCOUNTS (ID INTEGER, SOURCE TEXT, CREATED_AT TEXT)")
+        fake = Faker()
         
-        # Check if we have enough data, if not regenerate
-        count_accounts = conn.execute("SELECT COUNT(*) FROM ACCOUNTS").fetchone()[0]
-        if count_accounts < 50000:
-            logger.info("Generating large dataset for ACCOUNTS...")
-            conn.execute("DELETE FROM ACCOUNTS")
+        # Check if we need to regenerate
+        regenerate = False
+        try:
+            # Check for new schema presence
+            cursor = conn.execute("PRAGMA table_info(ACCOUNTS)")
+            cols = [info[1] for info in cursor.fetchall()]
+            count = conn.execute("SELECT COUNT(*) FROM ACCOUNTS").fetchone()[0]
             
-            # Generate 50,000 rows
-            data = []
-            for i in range(1, 50001):
-                # source 1-5, date varies slightly
-                source = str((i % 5) + 1) 
-                day = 10 + (i % 20)
-                date_str = f"202312{day}"
-                data.append((i, source, date_str))
-                
-                # Batch insert every 1000
-                if len(data) >= 1000:
-                    conn.executemany("INSERT INTO ACCOUNTS VALUES (?, ?, ?)", data)
-                    data = []
+            if 'EMAIL' not in cols or count < 50000:
+                regenerate = True
+        except:
+            regenerate = True
+
+        if regenerate:
+             logger.info("Regenerating database with realistic data...")
+             conn.execute("DROP TABLE IF EXISTS ACCOUNTS")
+             conn.execute("DROP TABLE IF EXISTS TRANSACTIONS")
+             conn.execute("DROP TABLE IF EXISTS sales_invoices") 
+
+             conn.execute("CREATE TABLE ACCOUNTS (ID INTEGER PRIMARY KEY, NAME TEXT, EMAIL TEXT, ADDRESS TEXT, STATE TEXT, CREATED_AT TEXT)")
+             conn.execute("CREATE TABLE TRANSACTIONS (ID INTEGER PRIMARY KEY, ACCOUNT_ID INTEGER, AMOUNT REAL, CURRENCY TEXT, DESCRIPTION TEXT, DATE TEXT)")
+             
+             logger.info("Generating 50,000 accounts...")
+             accounts = []
+             for i in range(1, 50001):
+                 accounts.append((
+                     i, 
+                     fake.name(), 
+                     fake.email(), 
+                     fake.address().replace('\n', ', '), 
+                     fake.state_abbr(),
+                     fake.date_between(start_date='-2y', end_date='today').strftime('%Y%m%d')
+                 ))
+                 
+                 if len(accounts) >= 5000:
+                     conn.executemany("INSERT INTO ACCOUNTS VALUES (?, ?, ?, ?, ?, ?)", accounts)
+                     accounts = []
             
-            if data:
-                conn.executemany("INSERT INTO ACCOUNTS VALUES (?, ?, ?)", data)
-            
-            conn.commit()
-            logger.info("Generated 50,000 account records.")
+             if accounts:
+                 conn.executemany("INSERT INTO ACCOUNTS VALUES (?, ?, ?, ?, ?, ?)", accounts)
+             
+             # Generate Transactions
+             logger.info("Generating transactions...")
+             txn_batch = []
+             txn_id = 1
+             for acc_id in range(1, 50001):
+                  # Generate 0-3 transactions per account
+                  for _ in range(fake.random_int(min=0, max=3)):
+                      txn_batch.append((
+                          txn_id,
+                          acc_id,
+                          round(fake.random.uniform(10.0, 5000.0), 2),
+                          fake.currency_code(),
+                          fake.bs(),
+                          fake.date_between(start_date='-1y', end_date='today').strftime('%Y%m%d')
+                      ))
+                      txn_id += 1
+                  
+                  if len(txn_batch) >= 5000:
+                       conn.executemany("INSERT INTO TRANSACTIONS VALUES (?, ?, ?, ?, ?, ?)", txn_batch)
+                       txn_batch = []
+             
+             if txn_batch:
+                 conn.executemany("INSERT INTO TRANSACTIONS VALUES (?, ?, ?, ?, ?, ?)", txn_batch)
+
+             conn.commit()
+             logger.info("Database generation complete.")
         
-        if conn.execute("SELECT COUNT(*) FROM sales_invoices").fetchone()[0] == 0:
-            data = [
-                (1, 'INV-001', 'Acme Corp', 1250.50, '20231201'),
-                (2, 'INV-002', 'Global Tech', 3400.00, '20231215'),
-                (3, 'INV-003', 'Software Solutions', 890.00, '20231220'),
-            ]
-            conn.executemany("INSERT INTO sales_invoices VALUES (?, ?, ?, ?, ?)", data)
-            conn.commit()
         conn.close()
 
 
@@ -177,7 +212,16 @@ class FlightQueryServer(pa.flight.FlightServerBase):
         conn = sqlite3.connect(self.db_path)
         try:
             # Tip belirleme için sorguyu LIMIT 0 ile çalıştır
-            cursor = conn.execute(f"SELECT * FROM ({sql}) AS sub LIMIT 0")
+            # Trailing semicolon'ı temizle ve yorum satırlarının wrapper'ı bozmasını engellemek için newline ekle
+            clean_sql = sql.strip().rstrip(';') + "\n"
+            try:
+                cursor = conn.execute(f"SELECT * FROM ({clean_sql}) AS sub LIMIT 0")
+            except sqlite3.Error as e:
+                logger.error(f"SQL Pre-execution failed. SQL was:\n{sql}")
+                msg = str(e)
+                if "incomplete input" in msg:
+                     msg += " (Query might be incomplete or malformed)"
+                raise pa.flight.FlightServerError(f"SQL Syntax Error: {msg}")
             
             # SQLite 'decltype' her zaman güvenilir değilse de, 
             # basit tablolar için PRAGMA veya cursor.description denenebilir.
@@ -206,7 +250,11 @@ class FlightQueryServer(pa.flight.FlightServerBase):
 
             conn = sqlite3.connect(self.db_path)
             conn.row_factory = sqlite3.Row
-            cursor = conn.execute(sql)
+            try:
+                cursor = conn.execute(sql)
+            except sqlite3.Error as e:
+                logger.error(f"SQL execution failed in do_get. SQL:\n{sql}")
+                raise pa.flight.FlightServerError(f"SQL Runtime Error: {e}")
             
             # İlk satırı alarak şemayı kesinleştir
             first_rows = cursor.fetchmany(1)
