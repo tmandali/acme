@@ -30,7 +30,6 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         self.location = location
         self.db_path = db_path
         self.query_dirs = query_dirs or [
-            pathlib.Path("./templates"),
             pathlib.Path("../app/sql-query/query")
         ]
         
@@ -42,7 +41,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         self._setup_jinja()
         
         # 3. Initialize Shared Database (SQLite)
-        self._init_db()
+        #self._init_db()
 
     def _get_session_context(self, session_id: str) -> datafusion.SessionContext:
         """Returns existing or creates a new isolated SessionContext for the user."""
@@ -59,8 +58,8 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         ctx = datafusion.SessionContext(config)
         
         # Register default tables for this new session
-        self._register_tables_in_datafusion(ctx)
-        self._register_external_conns(ctx)
+        #self._register_tables_in_datafusion(ctx)
+        #self._register_external_conns(ctx)
         
         self._sessions[session_id] = ctx
         return ctx
@@ -85,144 +84,144 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         }
         self.jinja_env.filters.update(filters)
 
-    def _init_db(self):
-        """Ensures the SQLite database exists and has seed data."""
-        logger.info(f"Initializing database at {self.db_path}")
-        conn = sqlite3.connect(self.db_path)
-        fake = Faker()
+    # def _init_db(self):
+    #     """Ensures the SQLite database exists and has seed data."""
+    #     logger.info(f"Initializing database at {self.db_path}")
+    #     conn = sqlite3.connect(self.db_path)
+    #     fake = Faker()
         
-        # Check if regeneration is needed
-        try:
-            cursor = conn.execute("SELECT COUNT(*) FROM ACCOUNTS")
-            count = cursor.fetchone()[0]
-            if count >= 50000:
-                conn.close()
-                return
-        except Exception:
-            pass
+    #     # Check if regeneration is needed
+    #     try:
+    #         cursor = conn.execute("SELECT COUNT(*) FROM ACCOUNTS")
+    #         count = cursor.fetchone()[0]
+    #         if count >= 50000:
+    #             conn.close()
+    #             return
+    #     except Exception:
+    #         pass
 
-        logger.info("Generating seed data...")
-        conn.executescript("""
-            DROP TABLE IF EXISTS ACCOUNTS;
-            DROP TABLE IF EXISTS TRANSACTIONS;
-            CREATE TABLE ACCOUNTS (ID INTEGER PRIMARY KEY, NAME TEXT, EMAIL TEXT, ADDRESS TEXT, STATE TEXT, CREATED_AT TEXT);
-            CREATE TABLE TRANSACTIONS (ID INTEGER PRIMARY KEY, ACCOUNT_ID INTEGER, AMOUNT REAL, CURRENCY TEXT, DESCRIPTION TEXT, DATE TEXT);
-        """)
+    #     logger.info("Generating seed data...")
+    #     conn.executescript("""
+    #         DROP TABLE IF EXISTS ACCOUNTS;
+    #         DROP TABLE IF EXISTS TRANSACTIONS;
+    #         CREATE TABLE ACCOUNTS (ID INTEGER PRIMARY KEY, NAME TEXT, EMAIL TEXT, ADDRESS TEXT, STATE TEXT, CREATED_AT TEXT);
+    #         CREATE TABLE TRANSACTIONS (ID INTEGER PRIMARY KEY, ACCOUNT_ID INTEGER, AMOUNT REAL, CURRENCY TEXT, DESCRIPTION TEXT, DATE TEXT);
+    #     """)
 
-        # Accounts
-        accs = [(i, fake.name(), fake.email(), fake.address().replace('\n', ', '), fake.state_abbr(), 
-                 fake.date_between(start_date='-2y', end_date='today').strftime('%Y%m%d')) for i in range(1, 50001)]
-        conn.executemany("INSERT INTO ACCOUNTS VALUES (?,?,?,?,?,?)", accs)
+    #     # Accounts
+    #     accs = [(i, fake.name(), fake.email(), fake.address().replace('\n', ', '), fake.state_abbr(), 
+    #              fake.date_between(start_date='-2y', end_date='today').strftime('%Y%m%d')) for i in range(1, 50001)]
+    #     conn.executemany("INSERT INTO ACCOUNTS VALUES (?,?,?,?,?,?)", accs)
 
-        # Transactions
-        txns = []
-        for acc_id in range(1, 50001):
-            for _ in range(fake.random_int(0, 3)):
-                txns.append((None, acc_id, round(fake.random.uniform(10, 5000), 2), fake.currency_code(), fake.bs(),
-                             fake.date_between(start_date='-1y', end_date='today').strftime('%Y%m%d')))
-        conn.executemany("INSERT INTO TRANSACTIONS VALUES (?,?,?,?,?,?)", txns)
+    #     # Transactions
+    #     txns = []
+    #     for acc_id in range(1, 50001):
+    #         for _ in range(fake.random_int(0, 3)):
+    #             txns.append((None, acc_id, round(fake.random.uniform(10, 5000), 2), fake.currency_code(), fake.bs(),
+    #                          fake.date_between(start_date='-1y', end_date='today').strftime('%Y%m%d')))
+    #     conn.executemany("INSERT INTO TRANSACTIONS VALUES (?,?,?,?,?,?)", txns)
         
-        conn.commit()
-        conn.close()
-        conn.close()
+    #     conn.commit()
+    #     conn.close()
+    #     conn.close()
 
-    def _register_tables_in_datafusion(self, ctx: datafusion.SessionContext, target_table_name: str = None):
-        """Pre-registers SQLite tables in a specific context for visibility."""
-        logger.info(f"Registering SQLite tables in session...")
-        conn = sqlite3.connect(self.db_path)
-        if target_table_name:
-            # Check if this table exists in SQLite
-            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND LOWER(name) = LOWER(?)", (target_table_name,))
-            tables = [r[0] for r in cursor.fetchall()]
-        else:
-            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
-            tables = [r[0] for r in cursor.fetchall()]
+    # def _register_tables_in_datafusion(self, ctx: datafusion.SessionContext, target_table_name: str = None):
+    #     """Pre-registers SQLite tables in a specific context for visibility."""
+    #     logger.info(f"Registering SQLite tables in session...")
+    #     conn = sqlite3.connect(self.db_path)
+    #     if target_table_name:
+    #         # Check if this table exists in SQLite
+    #         cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND LOWER(name) = LOWER(?)", (target_table_name,))
+    #         tables = [r[0] for r in cursor.fetchall()]
+    #     else:
+    #         cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    #         tables = [r[0] for r in cursor.fetchall()]
         
-        for table_name in tables:
-            try:
-                cursor = conn.execute(f"SELECT * FROM {table_name}")
-                col_names = [col[0] for col in cursor.description]
-                normalized_names = [n.lower() for n in col_names]
+    #     for table_name in tables:
+    #         try:
+    #             cursor = conn.execute(f"SELECT * FROM {table_name}")
+    #             col_names = [col[0] for col in cursor.description]
+    #             normalized_names = [n.lower() for n in col_names]
                 
-                batches = []
-                while True:
-                    rows = cursor.fetchmany(1000)
-                    if not rows: break
+    #             batches = []
+    #             while True:
+    #                 rows = cursor.fetchmany(1000)
+    #                 if not rows: break
                     
-                    cols = list(zip(*rows))
-                    batches.append(pa.RecordBatch.from_arrays(
-                        [pa.array(c) for c in cols],
-                        names=normalized_names
-                    ))
+    #                 cols = list(zip(*rows))
+    #                 batches.append(pa.RecordBatch.from_arrays(
+    #                     [pa.array(c) for c in cols],
+    #                     names=normalized_names
+    #                 ))
                 
-                if batches:
-                    ctx.register_record_batches(table_name.lower(), [batches])
-                    logger.info(f"Pre-registered local table '{table_name.lower()}'")
-            except Exception as e:
-                logger.warning(f"Failed to pre-register {table_name}: {e}")
+    #             if batches:
+    #                 ctx.register_record_batches(table_name.lower(), [batches])
+    #                 logger.info(f"Pre-registered local table '{table_name.lower()}'")
+    #         except Exception as e:
+    #             logger.warning(f"Failed to pre-register {table_name}: {e}")
         
-        conn.close()
+    #     conn.close()
 
-    def _register_external_conns(self, ctx: datafusion.SessionContext, target_table_name: str = None):
-        """Discovers and registers tables from external connections (e.g. MSSQL)."""
-        if not self.external_conns:
-            return
+    # def _register_external_conns(self, ctx: datafusion.SessionContext, target_table_name: str = None):
+    #     """Discovers and registers tables from external connections (e.g. MSSQL)."""
+    #     if not self.external_conns:
+    #         return
 
-        for conn_str in self.external_conns:
-            try:
-                if conn_str.startswith("mssql://"):
-                    logger.info(f"Discovering tables from MSSQL: {conn_str[:20]}...")
-                    # Temporarily use ReaderExtension's connection logic
-                    from .jinja_extensions import ReaderExtension
-                    ext = ReaderExtension(self.jinja_env)
-                    conn = ext._connect_mssql(conn_str)
-                    cursor = conn.cursor()
-                    if target_table_name:
-                        # Find the correct casing in MSSQL for the requested table name
-                        cursor.execute("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND LOWER(TABLE_NAME) = LOWER(%s)", (target_table_name,))
-                        tables = [r[0] for r in cursor.fetchall()]
-                        if not tables:
-                            logger.info(f"Table '{target_table_name}' not found in external connection {conn_str[:20]}")
-                            conn.close()
-                            continue
-                    else:
-                        # Discover user tables in MSSQL
-                        cursor.execute("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'")
-                        tables = [r[0] for r in cursor.fetchall()]
+    #     for conn_str in self.external_conns:
+    #         try:
+    #             if conn_str.startswith("mssql://"):
+    #                 logger.info(f"Discovering tables from MSSQL: {conn_str[:20]}...")
+    #                 # Temporarily use ReaderExtension's connection logic
+    #                 from .jinja_extensions import ReaderExtension
+    #                 ext = ReaderExtension(self.jinja_env)
+    #                 conn = ext._connect_mssql(conn_str)
+    #                 cursor = conn.cursor()
+    #                 if target_table_name:
+    #                     # Find the correct casing in MSSQL for the requested table name
+    #                     cursor.execute("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND LOWER(TABLE_NAME) = LOWER(%s)", (target_table_name,))
+    #                     tables = [r[0] for r in cursor.fetchall()]
+    #                     if not tables:
+    #                         logger.info(f"Table '{target_table_name}' not found in external connection {conn_str[:20]}")
+    #                         conn.close()
+    #                         continue
+    #                 else:
+    #                     # Discover user tables in MSSQL
+    #                     cursor.execute("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'")
+    #                     tables = [r[0] for r in cursor.fetchall()]
                     
-                    for table_name in tables:
-                        try:
-                            # Fetch all data in batches (consistent with ReaderExtension)
-                            cursor.execute(f"SELECT * FROM {table_name}")
-                            col_names = [col[0] for col in cursor.description]
-                            normalized_names = [n.lower() for n in col_names]
+    #                 for table_name in tables:
+    #                     try:
+    #                         # Fetch all data in batches (consistent with ReaderExtension)
+    #                         cursor.execute(f"SELECT * FROM {table_name}")
+    #                         col_names = [col[0] for col in cursor.description]
+    #                         normalized_names = [n.lower() for n in col_names]
                             
-                            batches = []
-                            while True:
-                                rows = cursor.fetchmany(1000)
-                                if not rows:
-                                    break
+    #                         batches = []
+    #                         while True:
+    #                             rows = cursor.fetchmany(1000)
+    #                             if not rows:
+    #                                 break
                                 
-                                cols = list(zip(*rows))
-                                batches.append(pa.RecordBatch.from_arrays(
-                                    [pa.array(c) for c in cols],
-                                    names=normalized_names
-                                ))
+    #                             cols = list(zip(*rows))
+    #                             batches.append(pa.RecordBatch.from_arrays(
+    #                                 [pa.array(c) for c in cols],
+    #                                 names=normalized_names
+    #                             ))
                             
-                            if batches:
-                                ctx.register_record_batches(table_name.lower(), [batches])
-                                logger.info(f"Pre-registered remote MSSQL table '{table_name.lower()}'")
-                            else:
-                                # Empty table schema
-                                fields = [pa.field(n, pa.string()) for n in normalized_names]
-                                schema = pa.schema(fields)
-                                empty_batch = pa.RecordBatch.from_arrays([pa.array([], type=pa.string()) for _ in normalized_names], schema=schema)
-                                ctx.register_record_batches(table_name.lower(), [[empty_batch]])
-                        except Exception as inner_e:
-                            logger.warning(f"Failed to register remote table {table_name}: {inner_e}")
-                    conn.close()
-            except Exception as e:
-                logger.error(f"Failed to connect to external source: {e}")
+    #                         if batches:
+    #                             ctx.register_record_batches(table_name.lower(), [batches])
+    #                             logger.info(f"Pre-registered remote MSSQL table '{table_name.lower()}'")
+    #                         else:
+    #                             # Empty table schema
+    #                             fields = [pa.field(n, pa.string()) for n in normalized_names]
+    #                             schema = pa.schema(fields)
+    #                             empty_batch = pa.RecordBatch.from_arrays([pa.array([], type=pa.string()) for _ in normalized_names], schema=schema)
+    #                             ctx.register_record_batches(table_name.lower(), [[empty_batch]])
+    #                     except Exception as inner_e:
+    #                         logger.warning(f"Failed to register remote table {table_name}: {inner_e}")
+    #                 conn.close()
+    #         except Exception as e:
+    #             logger.error(f"Failed to connect to external source: {e}")
 
     def _render_query(self, cmd: QueryCommand, ctx: datafusion.SessionContext) -> str:
         """Processes Jinja templates into SQL strings using specific session context."""
