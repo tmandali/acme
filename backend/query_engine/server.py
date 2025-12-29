@@ -21,11 +21,11 @@ from .types import sqlite_to_arrow_type
 
 # Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("FlightQueryServer")
+logger = logging.getLogger("StreamFlightServer")
 
-class FlightQueryServer(pa.flight.FlightServerBase):
+class StreamFlightServer(pa.flight.FlightServerBase):
     def __init__(self, location="grpc://0.0.0.0:8815", query_dirs=None, db_path="data.db", **kwargs):
-        super(FlightQueryServer, self).__init__(location, **kwargs)
+        super(StreamFlightServer, self).__init__(location, **kwargs)
         self.location = location
         self.query_dirs = query_dirs or [
             pathlib.Path("./templates"),
@@ -212,10 +212,23 @@ class FlightQueryServer(pa.flight.FlightServerBase):
         conn = sqlite3.connect(self.db_path)
         try:
             # Tip belirleme için sorguyu LIMIT 0 ile çalıştır
-            # Trailing semicolon'ı temizle ve yorum satırlarının wrapper'ı bozmasını engellemek için newline ekle
             clean_sql = sql.strip().rstrip(';') + "\n"
             try:
-                cursor = conn.execute(f"SELECT * FROM ({clean_sql}) AS sub LIMIT 0")
+                # SQLite'da tip bilgisini en iyi PRAGMA table_info veya bir örnek satır ile alabiliriz.
+                # Ancak dinamik sorgularda en güvenlisi bir örnek üzerinde Arrow'un tip çıkarımını kullanmaktır.
+                cursor = conn.execute(f"SELECT * FROM ({clean_sql}) AS sub LIMIT 1")
+                row = cursor.fetchone()
+                
+                if row:
+                    # Örnek veri varsa Arrow otomatik tip çıkarımı yapsın
+                    keys = row.keys()
+                    sample_batch = pa.RecordBatch.from_pylist([dict(row)])
+                    schema = sample_batch.schema
+                else:
+                    # Veri yoksa string olarak kolon isimlerini al
+                    fields = [pa.field(col[0], pa.string()) for col in cursor.description]
+                    schema = pa.schema(fields)
+                    
             except sqlite3.Error as e:
                 logger.error(f"SQL Pre-execution failed. SQL was:\n{sql}")
                 msg = str(e)
@@ -223,17 +236,6 @@ class FlightQueryServer(pa.flight.FlightServerBase):
                      msg += " (Query might be incomplete or malformed)"
                 raise pa.flight.FlightServerError(f"SQL Syntax Error: {msg}")
             
-            # SQLite 'decltype' her zaman güvenilir değilse de, 
-            # basit tablolar için PRAGMA veya cursor.description denenebilir.
-            # Burada en temel eşleme için isimleri alıyoruz.
-            fields = []
-            for col in cursor.description:
-                name = col[0]
-                # Arrow 14+ ile RecordBatch.from_pydict tip çıkarımı yapabiliyor,
-                # ancak şemada 'string' yerine veriye göre tip belirlemek daha iyi.
-                fields.append(pa.field(name, pa.string())) 
-            
-            schema = pa.schema(fields)
             logger.info(f"Flight info metadata generated for {cmd.template}")
         finally:
             conn.close()
@@ -256,42 +258,40 @@ class FlightQueryServer(pa.flight.FlightServerBase):
                 logger.error(f"SQL execution failed in do_get. SQL:\n{sql}")
                 raise pa.flight.FlightServerError(f"SQL Runtime Error: {e}")
             
-            # İlk satırı alarak şemayı kesinleştir
-            first_rows = cursor.fetchmany(1)
-            
-            if not first_rows:
-                # Sonuç boşsa şemayı LIMIT 0 ile al
-                logger.info(f"Query returned no results for {cmd.template}")
-                cursor_schema = conn.execute(f"SELECT * FROM ({sql}) AS sub LIMIT 0")
-                fields = [pa.field(col[0], pa.string()) for col in cursor_schema.description]
+            # Şemayı kesinleştirmek için ilk bloğu alalım
+            first_block = cursor.fetchmany(1000)
+            if not first_block:
+                # Sonuç boşsa
+                fields = [pa.field(col[0], pa.string()) for col in cursor.description]
                 schema = pa.schema(fields)
-                return pa.flight.GeneratorStream(schema, iter([]))
+                return pa.flight.RecordBatchStream(pa.RecordBatchReader.from_batches(schema, []))
 
-            # İlk satırdan kolon isimlerini al
-            keys = first_rows[0].keys()
-            
-            def batch_generator(initial_rows):
-                # Önce eldeki ilk satırları gönder
-                if initial_rows:
-                    cols = {k: [row[k] for row in initial_rows] for k in keys}
-                    table = pa.Table.from_pydict(cols)
-                    yield from table.to_batches()
+            # İlk bloktan şemayı çıkaralım
+            # dict(row) kullanarak Arrow'un tip çıkarımı yapmasını sağlıyoruz
+            keys = first_block[0].keys()
+            sample_batch = pa.RecordBatch.from_pylist([dict(r) for r in first_block])
+            schema = sample_batch.schema
 
+            def batch_generator():
+                # İlk bloğu gönder
+                yield sample_batch
+
+                # Kalanları döngüde gönder
                 while True:
-                    rows = cursor.fetchmany(1000)
+                    rows = cursor.fetchmany(5000)
                     if not rows:
                         break
-                    cols = {k: [row[k] for row in rows] for k in keys}
-                    table = pa.Table.from_pydict(cols)
-                    yield from table.to_batches()
+                    
+                    # Verimlilik için list comprehension + from_pylist
+                    # from_pylist, dict listesini verimli bir şekilde RecordBatch'e çevirir
+                    batch = pa.RecordBatch.from_pylist([dict(r) for r in rows], schema=schema)
+                    yield batch
+                
                 conn.close()
 
-            # Geçici bir tablo oluşturup şemayı ondan alalım (Arrow otomatik tip çıkarımı yapar)
-            sample_cols = {k: [row[k] for row in first_rows] for k in keys}
-            sample_table = pa.Table.from_pydict(sample_cols)
-            schema = sample_table.schema
-
-            return pa.flight.GeneratorStream(schema, batch_generator(first_rows))
+            # RecordBatchReader kullanarak daha "direkt" bir stream yapısı
+            reader = pa.RecordBatchReader.from_batches(schema, batch_generator())
+            return pa.flight.RecordBatchStream(reader)
         except Exception as e:
             logger.exception("Error in do_get")
             raise

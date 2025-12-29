@@ -8,7 +8,7 @@ import pytest
 from datetime import datetime, timedelta
 import pyarrow as pa
 import pyarrow.flight
-from query_engine.server import FlightQueryServer
+from query_engine.server import StreamFlightServer
 from query_engine.filters import (
     filter_quote, filter_sql, filter_between, filter_eq, filter_add_days,
     filter_gt, filter_lt, filter_gte, filter_lte, filter_ne, filter_like,
@@ -135,7 +135,7 @@ def server():
     conn.close()
 
     location = "grpc://0.0.0.0:8817"
-    server = FlightQueryServer(location=location, query_dirs=[pathlib.Path("test_templates")], db_path=db_path)
+    server = StreamFlightServer(location=location, query_dirs=[pathlib.Path("test_templates")], db_path=db_path)
     
     def run_server(): server.serve()
     thread = threading.Thread(target=run_server, daemon=True)
