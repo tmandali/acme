@@ -144,6 +144,23 @@ const sqlFunc = (val: any) => {
 nunjucksEnv.addFilter('sql', sqlFunc);
 nunjucksEnv.addGlobal('sql', sqlFunc);
 
+// Reader etiketi için dummy extension (Frontend tarafında hata almamak için)
+class ReaderExtension {
+  tags = ['reader'];
+  parse(parser: any, nodes: any) {
+    const tok = parser.nextToken();
+    const args = parser.parseSignature(null, true);
+    parser.advanceAfterBlockEnd(tok.value);
+    const body = parser.parseUntilBlocks('endreader');
+    parser.advanceAfterBlockEnd();
+    return new nodes.CallExtension(this, 'run', args, [body]);
+  }
+  run(_context: any) {
+    return ""; // Frontend'de içeriği gösterme (Backend'de işlenecek)
+  }
+}
+(nunjucksEnv as any).addExtension('ReaderExtension', new ReaderExtension());
+
 // Değerin bir aralık nesnesi olup olmadığını kontrol et
 const isRange = (val: any) => val && typeof val === 'object' && ('start' in val || 'begin' in val);
 

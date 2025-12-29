@@ -11,19 +11,28 @@ import {
   ChevronDown,
   X,
   Search,
+  RefreshCcw,
 } from "lucide-react"
 import type { Schema } from "../lib/types"
 import { getColumnIcon } from "../lib/utils"
+import { formatDistanceToNow } from "date-fns"
+import { tr } from "date-fns/locale"
 
 interface SchemaPanelProps {
   schema: Schema
   onTableClick: (tableName: string) => void
+  onRefreshTable?: (tableName: string) => void
+  refreshingTables?: Set<string>
+  tableStats?: Record<string, { lastRefreshedAt: number, durationMs: number }>
   onClose: () => void
 }
 
 export function SchemaPanel({
   schema,
   onTableClick,
+  onRefreshTable,
+  refreshingTables = new Set(),
+  tableStats = {},
   onClose
 }: SchemaPanelProps) {
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set(["ACCOUNTS"]))
@@ -154,11 +163,11 @@ export function SchemaPanel({
                   const isExpanded = expandedTables.has(table.name)
                   return (
                     <div key={table.name} className="group/table">
-                      <button
+                      <div
                         onClick={() => toggleTable(table.name)}
                         onDoubleClick={() => onTableClick(table.name)}
                         className={`
-                          flex items-center gap-2 py-2 px-2.5 rounded-lg cursor-pointer w-full transition-colors
+                          flex items-center gap-2 py-2 px-2.5 rounded-lg cursor-pointer w-full transition-colors group/table-row
                           ${isExpanded ? 'bg-muted' : 'hover:bg-muted/50'}
                         `}
                       >
@@ -173,10 +182,46 @@ export function SchemaPanel({
                           <Table2 className="h-3 w-3 text-blue-500" />
                         </div>
                         <span className="text-sm font-medium text-foreground flex-1 text-left">{table.name}</span>
-                        <span className="text-[10px] text-muted-foreground opacity-0 group-hover/table:opacity-100 transition-opacity">
-                          {table.columns.length} kolon
-                        </span>
-                      </button>
+                        <div className="flex items-center gap-1">
+                          {onRefreshTable && (
+                            <div className="relative group/refresh flex items-center justify-end min-w-[60px]">
+                              {/* Default View: Time Ago (Hidden on hover) */}
+                              <span className={`text-[10px] text-muted-foreground transition-opacity text-right
+                                ${refreshingTables.has(table.name) ? 'opacity-0' : 'group-hover/table-row:opacity-0 opacity-100'}
+                              `}>
+                                {tableStats[table.name]
+                                  ? formatDistanceToNow(tableStats[table.name].lastRefreshedAt, { addSuffix: true, locale: tr })
+                                  : ''}
+                              </span>
+
+                              {/* Hover/Refreshing View: Button + Duration */}
+                              <div className={`absolute right-0 flex items-center gap-1 transition-opacity
+                                ${refreshingTables.has(table.name) ? 'opacity-100' : 'opacity-0 group-hover/table-row:opacity-100'}
+                              `}>
+                                {/* Duration Label */}
+                                {tableStats[table.name] && !refreshingTables.has(table.name) && (
+                                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                    {(tableStats[table.name].durationMs / 1000).toFixed(1)}s
+                                  </span>
+                                )}
+
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onRefreshTable(table.name);
+                                  }}
+                                  disabled={refreshingTables.has(table.name)}
+                                >
+                                  <RefreshCcw className={`h-3 w-3 ${refreshingTables.has(table.name) ? 'animate-spin text-primary' : 'text-muted-foreground'}`} />
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                       {isExpanded && (
                         <div className="ml-7 mt-1 mb-2 border-l-2 border-muted pl-3 space-y-0.5">
                           {table.columns.map((col) => {
@@ -215,15 +260,15 @@ export function SchemaPanel({
             </div>
           )}
         </div>
-      </div>
+      </div >
 
       {/* Footer - Quick tips */}
-      <div className="px-4 py-3 border-t bg-muted/10">
+      < div className="px-4 py-3 border-t bg-muted/10" >
         <p className="text-[10px] text-muted-foreground">
           <span className="font-medium">İpucu:</span> Tabloya çift tıklayarak sorguya ekleyin
         </p>
-      </div>
-    </div>
+      </div >
+    </div >
   )
 }
 

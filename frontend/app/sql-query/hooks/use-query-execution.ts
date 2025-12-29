@@ -5,10 +5,11 @@ import type { Variable } from "../lib/types"
 import * as arrow from "apache-arrow"
 
 interface UseQueryExecutionProps {
-    variables: Variable[]
+    variables: Variable[];
+    sessionId: string;
 }
 
-export function useQueryExecution({ variables }: UseQueryExecutionProps) {
+export function useQueryExecution({ variables, sessionId }: UseQueryExecutionProps) {
     const [results, setResults] = useState<arrow.RecordBatch[]>([])
     const [totalRows, setTotalRows] = useState(0)
     const [isLoading, setIsLoading] = useState(false)
@@ -52,7 +53,10 @@ export function useQueryExecution({ variables }: UseQueryExecutionProps) {
             const startTime = Date.now()
             const response = await fetch("/api/flight/execute", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                    "Content-Type": "application/json",
+                    "x-session-id": sessionId
+                },
                 body: JSON.stringify({ query: queryToRun, criteria }),
                 signal: controller.signal
             });

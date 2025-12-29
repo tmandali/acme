@@ -8,6 +8,7 @@ class QueryCommand:
     template: str
     criteria: Dict[str, Any] = field(default_factory=dict)
     query: Optional[str] = None
+    session_id: str = "default"
     
     @classmethod
     def from_json(cls, json_str: str) -> 'QueryCommand':
@@ -15,7 +16,8 @@ class QueryCommand:
         return cls(
             template=data.get("template", ""),
             criteria=data.get("criteria", {}),
-            query=data.get("query")
+            query=data.get("query"),
+            session_id=data.get("session_id", "default")
         )
 
 @dataclass

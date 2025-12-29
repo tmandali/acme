@@ -128,9 +128,7 @@ export const sampleResults = Array.from({ length: 50 }, (_, i) => {
 
 // Örnek bağlantılar
 export const sampleConnections = [
-  { id: "conn_1", name: "Production ERP", type: "PostgreSQL" },
-  { id: "conn_2", name: "Analytics Warehouse", type: "BigQuery" },
-  { id: "conn_3", name: "Customer Portal DB", type: "MySQL" },
-  { id: "conn_4", name: "Legacy Mainframe", type: "Oracle" },
+  { id: "default", name: "Varsayılan Bağlantı", type: "Arrow Flight" },
+  { id: "local", name: "Yerel Veritabanı (SQLite)", type: "SQLite" },
 ]
 

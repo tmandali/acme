@@ -4,12 +4,15 @@ import logging
 import pyarrow as pa
 from jinja2 import nodes
 from jinja2.ext import Extension
+from urllib.parse import urlparse, unquote
 
 logger = logging.getLogger("StreamFlightServer")
 
 class ReaderExtension(Extension):
     """
-    Custom reader tag: {% reader 'table_name', 'sqlite://path' %} ... {% endreader %}
+    Custom reader tag: 
+    {% reader 'table_name', 'sqlite://path' %} ... {% endreader %}
+    {% reader 'table_name', 'mssql://user:pass@host:port/db' %} ... {% endreader %}
     """
     tags = {"reader"}
 
@@ -53,19 +56,20 @@ class ReaderExtension(Extension):
         if not ctx:
             return "-- Error: DataFusion context not found"
 
-        # Resolve path
-        db_path = self._resolve_db_path(conn_str)
-        
         try:
-            logger.debug(f"Reader tag connecting to: {db_path}")
-            conn = sqlite3.connect(str(db_path))
-            cursor = conn.execute(inner_sql)
-            col_names = [col[0] for col in cursor.description]
+            if conn_str.startswith("mssql://"):
+                conn = self._connect_mssql(conn_str)
+                cursor = conn.cursor()
+                cursor.execute(inner_sql)
+            else:
+                db_path = self._resolve_db_path(conn_str)
+                logger.debug(f"Reader tag connecting to SQLite: {db_path}")
+                conn = sqlite3.connect(str(db_path))
+                cursor = conn.execute(inner_sql)
             
-            # Normalize column names
+            col_names = [col[0] for col in cursor.description]
             normalized_field_names = [n.lower() for n in col_names]
             
-            # Refresh schema
             try:
                 ctx.deregister_table(name)
             except:
@@ -88,9 +92,8 @@ class ReaderExtension(Extension):
 
             if batches:
                 ctx.register_record_batches(name, [batches])
-                logger.info(f"Dynamically registered table '{name}' with {len(batches)} batches.")
+                logger.info(f"Dynamically registered table '{name}' with {len(batches)} batches from {conn_str[:15]}...")
             else:
-                # Register empty table to prevent SQL errors
                 fields = [pa.field(n, pa.string()) for n in normalized_field_names]
                 schema = pa.schema(fields)
                 empty_batch = pa.RecordBatch.from_arrays(
@@ -102,11 +105,30 @@ class ReaderExtension(Extension):
             return "" 
         except Exception as e:
             err_msg = f"Error in reader tag: {str(e)}"
-            logger.error(err_msg)
+            logger.error(err_msg, exc_info=True)
             return f"-- {err_msg}\n"
 
+    def _connect_mssql(self, conn_str):
+        import pymssql
+        u = urlparse(conn_str)
+        # Handle URL encoded characters in password
+        password = unquote(u.password) if u.password else None
+        user = unquote(u.username) if u.username else None
+        
+        database = u.path.lstrip('/')
+        # Extract additional params like encrypt=true
+        # pymssql doesn't support them all natively in connect() but we handle the basics
+        return pymssql.connect(
+            server=u.hostname,
+            user=user,
+            password=password,
+            database=database,
+            port=u.port or 1433,
+            timeout=10
+        )
+
     def _resolve_db_path(self, conn_str):
-        db_path_str = conn_str.replace("sqllite://", "").replace("sqlite://", "")
+        db_path_str = conn_str.replace("sqllite://", "").replace("sqlite://", "").replace("sqlite3://", "")
         db_path = pathlib.Path(db_path_str)
         
         if not db_path.is_absolute():

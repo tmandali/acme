@@ -19,6 +19,7 @@ const grpcObj: any = grpc.loadPackageDefinition(packageDefinition);
 const flightProto = grpcObj.arrow.flight.protocol;
 
 export async function GET(request: NextRequest) {
+    const sessionId = request.headers.get("x-session-id") || request.nextUrl.searchParams.get("session_id") || "default";
     const location = process.env.ARROW_FLIGHT_URL || "localhost:8815";
     const client = new flightProto.FlightService(location, grpc.credentials.createInsecure());
 
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
 
     const descriptor = {
         type: "CMD",
-        cmd: Buffer.from(JSON.stringify({ query: sql })),
+        cmd: Buffer.from(JSON.stringify({ query: sql, session_id: sessionId })),
     };
 
     return new Promise((resolve) => {

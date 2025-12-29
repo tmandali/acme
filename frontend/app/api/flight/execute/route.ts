@@ -19,8 +19,10 @@ const grpcObj: any = grpc.loadPackageDefinition(packageDefinition);
 const flightProto = grpcObj.arrow.flight.protocol;
 
 export async function POST(request: NextRequest) {
+    const sessionId = request.headers.get("x-session-id") || "default";
     const body = await request.json();
     const { query, criteria } = body;
+    // const sessionId = request.headers.get("x-session-id") || "default"; // This line is replaced
 
     // Use environment variable for Flight server location
     const location = process.env.ARROW_FLIGHT_URL || "localhost:8815";
@@ -29,7 +31,7 @@ export async function POST(request: NextRequest) {
     // Prepare Descriptor (CMD type)
     const descriptor = {
         type: "CMD",
-        cmd: Buffer.from(JSON.stringify({ query, criteria })),
+        cmd: Buffer.from(JSON.stringify({ query, criteria, session_id: sessionId })),
     };
 
     return new Promise((resolve) => {

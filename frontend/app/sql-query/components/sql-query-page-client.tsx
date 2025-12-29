@@ -1,7 +1,7 @@
 "use client"
 // Force rebuild
 
-import { useState, useCallback, useRef, useEffect } from "react"
+import { useState, useCallback, useRef, useEffect, useMemo } from "react"
 import yaml from "js-yaml"
 import { toast } from "sonner"
 import { AppSidebar } from "@/components/app-sidebar"
@@ -26,7 +26,8 @@ import {
     Settings2,
     Save,
     Upload,
-    Download
+    Download,
+    RefreshCw,
 } from "lucide-react"
 
 import {
@@ -49,7 +50,7 @@ import { ApiTabContent } from "./api-tab-content"
 import { SQLToolbar } from "./sql-toolbar"
 
 // Tipler ve Veriler
-import type { Variable, QueryFile } from "../lib/types"
+import type { Variable, QueryFile, Schema } from "../lib/types"
 import { sampleSchema, sampleResults, sampleConnections } from "../lib/data"
 import { processJinjaTemplate, findVariablesInQuery } from "../lib/utils"
 
@@ -79,15 +80,32 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     const [selectedConnectionId, setSelectedConnectionId] = useState(initialData?.connectionId || sampleConnections[0].id)
     const [isConnOpen, setIsConnOpen] = useState(false)
     const [currentWorkflowId, setCurrentWorkflowId] = useState<string | null>(null)
+    const [refreshingTables, setRefreshingTables] = useState<Set<string>>(new Set())
+    const [tableStats, setTableStats] = useState<Record<string, { lastRefreshedAt: number, durationMs: number }>>({})
     const containerRef = useRef<HTMLDivElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
-    const [dbSchema, setDbSchema] = useState(sampleSchema)
+
+    const [sessionId, setSessionId] = useState<string>("");
+
+    useEffect(() => {
+        setMounted(true);
+        let id = localStorage.getItem("acme_session_id");
+        if (!id) {
+            id = Math.random().toString(36).substring(2, 11);
+            localStorage.setItem("acme_session_id", id);
+        }
+        setSessionId(id);
+    }, []);
+
+    const [dbSchema, setDbSchema] = useState<Schema>({ name: "Veritabanı Bağlanıyor...", models: [], tables: [] })
     const queryStatusRef = useRef<"completed" | "cancelled" | null>(null)
 
     // Schema Fetching
     const refreshSchema = useCallback(async () => {
         try {
-            const res = await fetch("/api/flight/schema")
+            const res = await fetch(`/api/flight/schema?session_id=${sessionId}`, {
+                headers: { "x-session-id": sessionId }
+            })
             if (res.ok) {
                 const data = await res.json()
                 setDbSchema(data)
@@ -95,7 +113,8 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         } catch (err) {
             console.error("Failed to fetch schema:", err)
         }
-    }, [])
+    }, [sessionId])
+
 
     useEffect(() => {
         if (mounted) {
@@ -116,7 +135,82 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         handleRunQuery: executeQuery,
         handleCancelQuery,
         processQuery
-    } = useQueryExecution({ variables })
+    } = useQueryExecution({ variables, sessionId })
+
+    const handleRefreshTable = useCallback(async (tableName: string) => {
+        const startTime = Date.now()
+        setRefreshingTables(prev => new Set(prev).add(tableName))
+        try {
+            const res = await fetch("/api/flight/refresh", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "x-session-id": sessionId
+                },
+                body: JSON.stringify({ tableName })
+            })
+            if (res.ok) {
+                toast.success(`'${tableName}' tablosu güncellendi.`)
+                // Stop spinning immediately after server success
+                setRefreshingTables(prev => {
+                    const next = new Set(prev)
+                    next.delete(tableName)
+                    return next
+                })
+
+                const duration = Date.now() - startTime
+                setTableStats(prev => ({
+                    ...prev,
+                    [tableName]: {
+                        lastRefreshedAt: Date.now(),
+                        durationMs: duration
+                    }
+                }))
+
+                await refreshSchema()
+            } else {
+                const errorData = await res.json().catch(() => ({}));
+                const msg = errorData.error || "Bilinmeyen sunucu hatası";
+                toast.error(`'${tableName}' güncellenirken hata oluştu.`, {
+                    action: {
+                        label: "Detay",
+                        onClick: () => setErrorDetail(msg)
+                    }
+                })
+            }
+        } catch (err: any) {
+            console.error("Manual refresh error:", err)
+            toast.error(`'${tableName}' güncellenirken teknik bir hata oluştu.`, {
+                action: {
+                    label: "Detay",
+                    onClick: () => setErrorDetail(err.message)
+                }
+            })
+        } finally {
+            // Guarantee removal just in case of error or missing branch
+            setRefreshingTables(prev => {
+                if (!prev.has(tableName)) return prev
+                const next = new Set(prev)
+                next.delete(tableName)
+                return next
+            })
+        }
+    }, [sessionId, refreshSchema, setErrorDetail])
+
+    const handleNewSession = useCallback(() => {
+        const newId = Math.random().toString(36).substring(2, 11);
+        localStorage.setItem("acme_session_id", newId);
+
+        // Clear UI states immediately to prevent stale data "lag"
+        // This solves the perception that "cleaning takes time" or "old data comes from memory"
+        setDbSchema({ name: "DataFusion Schema", models: [], tables: [] });
+        setResults([]);
+        setRefreshingTables(new Set());
+        setTableStats({});
+
+        setSessionId(newId);
+        toast.info("Yeni oturum başlatıldı. Tüm geçici kayıtlar sıfırlandı.");
+    }, [setResults]);
 
     const handleRunQueryWrapper = useCallback(async (queryToRun?: string) => {
         const targetQuery = typeof queryToRun === 'string' ? queryToRun : query
@@ -271,9 +365,6 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         return () => observer.disconnect()
     }, [])
 
-    useEffect(() => {
-        setMounted(true)
-    }, [])
 
     // SQL'deki Nunjucks (Jinja) pattern'lerinden değişkenleri tara ve ekle
     const handleScanVariables = useCallback((silent: boolean = false) => {
@@ -463,13 +554,37 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                 <BreadcrumbSeparator />
                                 <BreadcrumbItem>
                                     <BreadcrumbPage>
-                                        <input
-                                            type="text"
-                                            value={queryName}
-                                            onChange={(e) => setQueryName(e.target.value)}
-                                            className="text-sm font-medium bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -mx-1 text-foreground"
-                                            placeholder="Sorgu adı..."
-                                        />
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="text"
+                                                value={queryName}
+                                                onChange={(e) => setQueryName(e.target.value)}
+                                                className="text-sm font-medium bg-transparent border-none outline-none focus:ring-1 focus:ring-ring rounded px-1 -mx-1 text-foreground"
+                                                placeholder="Sorgu adı..."
+                                            />
+                                            {sessionId && (
+                                                <div
+                                                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-primary/10 text-[10px] uppercase tracking-wider font-bold text-primary border border-primary/20"
+                                                >
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                                                    <span className="cursor-help" title="Sizin için özel olarak oluşturulmuş izole oturum ID'si">Session: {sessionId}</span>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-4 w-4 rounded-full hover:bg-primary/20 text-primary p-0 ml-1"
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            if (confirm("Yeni bir oturum başlatmak istediğinize emin misiniz? Mevcut oturumdaki geçici kayıtlar kaybolacaktır.")) {
+                                                                handleNewSession();
+                                                            }
+                                                        }}
+                                                        title="Yeni Oturum Başlat"
+                                                    >
+                                                        <RefreshCw className="h-2.5 w-2.5" />
+                                                    </Button>
+                                                </div>
+                                            )}
+                                        </div>
                                     </BreadcrumbPage>
                                 </BreadcrumbItem>
                             </BreadcrumbList>
@@ -585,6 +700,9 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                     <SchemaPanel
                                         schema={dbSchema}
                                         onTableClick={handleTableClick}
+                                        onRefreshTable={handleRefreshTable}
+                                        refreshingTables={refreshingTables}
+                                        tableStats={tableStats}
                                         onClose={() => setSchemaPanelOpen(false)}
                                     />
                                 </div>
