@@ -17,6 +17,23 @@ import type { Schema } from "../lib/types"
 import { getColumnIcon } from "../lib/utils"
 import { formatDistanceToNow } from "date-fns"
 import { tr } from "date-fns/locale"
+import { useEffect } from "react"
+
+function DurationTimer({ startTime }: { startTime: number }) {
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    // Immediate update
+    setElapsed(Date.now() - startTime)
+
+    const interval = setInterval(() => {
+      setElapsed(Date.now() - startTime)
+    }, 100)
+    return () => clearInterval(interval)
+  }, [startTime])
+
+  return <span>{(elapsed / 1000).toFixed(1)}s</span>
+}
 
 interface SchemaPanelProps {
   schema: Schema
@@ -39,6 +56,27 @@ export function SchemaPanel({
   const [modelsExpanded, setModelsExpanded] = useState(true)
   const [tablesExpanded, setTablesExpanded] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
+  const [refreshStartTimes, setRefreshStartTimes] = useState<Record<string, number>>({})
+
+  // Sync start times when refreshingTables changes
+  useEffect(() => {
+    setRefreshStartTimes(prev => {
+      const next = { ...prev }
+      // Remove finished
+      Object.keys(next).forEach(key => {
+        if (!refreshingTables.has(key)) {
+          delete next[key]
+        }
+      })
+      // Add new
+      refreshingTables.forEach(key => {
+        if (!next[key]) {
+          next[key] = Date.now()
+        }
+      })
+      return next
+    })
+  }, [refreshingTables])
 
   const toggleTable = (tableName: string) => {
     const newExpanded = new Set(expandedTables)
@@ -199,10 +237,16 @@ export function SchemaPanel({
                                 ${refreshingTables.has(table.name) ? 'opacity-100' : 'opacity-0 group-hover/table-row:opacity-100'}
                               `}>
                                 {/* Duration Label */}
-                                {tableStats[table.name] && !refreshingTables.has(table.name) && (
-                                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                                    {(tableStats[table.name].durationMs / 1000).toFixed(1)}s
+                                {refreshingTables.has(table.name) ? (
+                                  <span className="text-[10px] text-primary font-medium whitespace-nowrap">
+                                    <DurationTimer startTime={refreshStartTimes[table.name] || Date.now()} />
                                   </span>
+                                ) : (
+                                  tableStats[table.name] && (
+                                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                      {(tableStats[table.name].durationMs / 1000).toFixed(1)}s
+                                    </span>
+                                  )
                                 )}
 
                                 <Button

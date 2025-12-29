@@ -224,15 +224,27 @@ export function SQLEditor({
   }, [schema])
 
   const handleExecute = useCallback(() => {
+    let queryToRun = ""
 
-
-    let queryToRun = query
+    // Güvenilir içerik kaynağı olarak her zaman doğrudan editör instance'ını kullan
     if (editorInstanceRef.current) {
       const selectedText = editorInstanceRef.current.getSelectedText()
       if (selectedText && selectedText.trim().length > 0) {
         queryToRun = selectedText
+      } else {
+        // Eğer seçim yoksa, tüm içeriği doğrudan editörden al
+        // (prop olan 'query' bayat (stale) olabilir)
+        queryToRun = editorInstanceRef.current.getValue()
       }
+    } else {
+      // Yedek durum
+      queryToRun = query
     }
+
+    if (!queryToRun || !queryToRun.trim()) {
+      return
+    }
+
     onRunQuery(queryToRun)
   }, [query, onRunQuery, readOnly])
 
@@ -286,9 +298,12 @@ export function SQLEditor({
           <Button
             onClick={isLoading ? onCancelQuery : handleExecute}
             size="icon"
-            className={`h-10 w-10 rounded-full text-white ${isLoading
+            disabled={!isLoading && !query.trim()}
+            className={`h-10 w-10 rounded-full text-white shadow-lg transition-all ${isLoading
               ? "bg-red-600 hover:bg-red-700"
-              : "bg-emerald-600 hover:bg-emerald-700"
+              : !query.trim()
+                ? "bg-gray-400 cursor-not-allowed opacity-50"
+                : "bg-emerald-600 hover:bg-emerald-700"
               }`}
           >
             {isLoading ? (
