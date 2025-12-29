@@ -83,13 +83,17 @@ export function useQueryExecution({ variables }: UseQueryExecutionProps) {
                 }
             };
 
+            let isFirstBatch = true;
             for await (const batch of reader) {
+                console.log(`[Streaming] Paket alındı: ${batch.numRows} satır`);
                 tempBatches.push(batch);
                 tempCount += batch.numRows;
 
                 const now = Date.now();
-                if (now - lastUpdate > 100) { // Update UI every 100ms during ingestion
+                // Update UI every 32ms (roughly 30fps) for smoothness, or immediately for the first batch
+                if (isFirstBatch || now - lastUpdate > 32) {
                     flush();
+                    isFirstBatch = false;
                 }
             }
             flush();

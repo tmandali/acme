@@ -39,6 +39,14 @@ export const columnTypeConfig: Record<string, { icon: React.ElementType; color: 
   Date: { icon: Calendar, color: "text-emerald-500" },
   Decimal: { icon: Hash, color: "text-orange-500" },
   JSON: { icon: FileJson, color: "text-cyan-500" },
+  // DataFusion / Arrow specific types
+  Utf8: { icon: Type, color: "text-blue-500" },
+  Int32: { icon: Hash, color: "text-amber-500" },
+  Int64: { icon: Key, color: "text-amber-500" },
+  Float64: { icon: Hash, color: "text-orange-500" },
+  Date32: { icon: Calendar, color: "text-emerald-500" },
+  Date64: { icon: Calendar, color: "text-emerald-500" },
+  Timestamp: { icon: Clock, color: "text-emerald-500" },
 }
 
 
@@ -104,7 +112,9 @@ export const filterTypeConfig: Record<Variable["filterType"], { icon: React.Elem
 // Kolon ikon helper
 export function getColumnIcon(type: string, hasFk?: boolean) {
   if (hasFk) return { icon: Link2, color: "text-rose-500" }
-  return columnTypeConfig[type] || { icon: Circle, color: "text-muted-foreground" }
+  // Handle complex types like Timestamp(Nanosecond, None)
+  const baseType = type.split('(')[0]
+  return columnTypeConfig[baseType] || columnTypeConfig[type] || { icon: Circle, color: "text-muted-foreground" }
 }
 
 // Nunjucks ortamını yapılandır

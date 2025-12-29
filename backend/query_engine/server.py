@@ -2,24 +2,24 @@ import json
 import sqlite3
 import pathlib
 import yaml
-from datetime import datetime
-from dataclasses import asdict
-import pyarrow as pa
-import pyarrow.flight
-from jinja2 import Environment, FileSystemLoader
-from faker import Faker
 import logging
 import datafusion
+import pyarrow as pa
+import pyarrow.flight
+from datetime import datetime
+from dataclasses import asdict
+from jinja2 import Environment, FileSystemLoader
+from faker import Faker
 
 from .models import QueryCommand, SqlWrapper, TemplateMetadata
+from .jinja_extensions import ReaderExtension
 from .filters import (
     filter_quote, filter_sql, filter_between, filter_eq, filter_add_days,
     filter_gt, filter_lt, filter_gte, filter_lte, filter_ne, filter_like,
     filter_start, filter_end
 )
-from .types import sqlite_to_arrow_type
 
-# Logging setup
+# Logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("StreamFlightServer")
 
@@ -27,259 +27,180 @@ class StreamFlightServer(pa.flight.FlightServerBase):
     def __init__(self, location="grpc://0.0.0.0:8815", query_dirs=None, db_path="data.db", **kwargs):
         super(StreamFlightServer, self).__init__(location, **kwargs)
         self.location = location
+        self.db_path = db_path
         self.query_dirs = query_dirs or [
             pathlib.Path("./templates"),
             pathlib.Path("../app/sql-query/query")
         ]
-        self.db_path = db_path
-        self._template_cache = {} # Basit önbellek
         
-        # Setup Jinja
-        self.jinja_env = Environment(loader=FileSystemLoader([str(d) for d in self.query_dirs]))
-        self.jinja_env.filters["quote"] = filter_quote
-        self.jinja_env.filters["sql"] = filter_sql
-        self.jinja_env.filters["between"] = filter_between
-        self.jinja_env.filters["eq"] = filter_eq
-        self.jinja_env.filters["add_days"] = filter_add_days
-        self.jinja_env.filters["gt"] = filter_gt
-        self.jinja_env.filters["lt"] = filter_lt
-        self.jinja_env.filters["gte"] = filter_gte
-        self.jinja_env.filters["ge"] = filter_gte  # Alias
-        self.jinja_env.filters["lte"] = filter_lte
-        self.jinja_env.filters["le"] = filter_lte  # Alias
-        self.jinja_env.filters["ne"] = filter_ne
-        self.jinja_env.filters["like"] = filter_like
-        self.jinja_env.filters["start"] = filter_start
-        self.jinja_env.filters["begin"] = filter_start  # Alias
-        self.jinja_env.filters["end"] = filter_end
-        self.jinja_env.filters["finish"] = filter_end   # Alias
+        # 1. Initialize DataFusion
+        self._setup_datafusion()
         
-        self.jinja_env.globals["now"] = datetime.now().strftime("%Y%m%d")
-        self.jinja_env.globals["zip"] = zip
+        # 2. Setup Template Engine (Jinja)
+        self._setup_jinja()
         
-        # Initialize DataFusion Context with Information Schema enabled
-        config = datafusion.SessionConfig().with_information_schema(True)
-        self.ctx = datafusion.SessionContext(config)
-        
+        # 3. Initialize Database and Register Tables
         self._init_db()
         self._register_tables_in_datafusion()
 
+    def _setup_datafusion(self):
+        config = datafusion.SessionConfig().with_information_schema(True)
+        self.ctx = datafusion.SessionContext(config)
+
+    def _setup_jinja(self):
+        self.jinja_env = Environment(
+            loader=FileSystemLoader([str(d) for d in self.query_dirs]),
+            extensions=[ReaderExtension]
+        )
+        # Shared context for the reader extension
+        self.jinja_env.globals["datafusion_ctx"] = self.ctx
+        self.jinja_env.globals["now"] = datetime.now().strftime("%Y%m%d")
+        self.jinja_env.globals["zip"] = zip
+        
+        # Register Filters
+        filters = {
+            "quote": filter_quote, "sql": filter_sql, "between": filter_between,
+            "eq": filter_eq, "add_days": filter_add_days, "gt": filter_gt,
+            "lt": filter_lt, "gte": filter_gte, "ge": filter_gte,
+            "lte": filter_lte, "le": filter_lte, "ne": filter_ne,
+            "like": filter_like, "start": filter_start, "begin": filter_start,
+            "end": filter_end, "finish": filter_end
+        }
+        self.jinja_env.filters.update(filters)
+
     def _init_db(self):
+        """Ensures the SQLite database exists and has seed data."""
         logger.info(f"Initializing database at {self.db_path}")
         conn = sqlite3.connect(self.db_path)
         fake = Faker()
         
-        # Check if we need to regenerate
-        regenerate = False
+        # Check if regeneration is needed
         try:
-            # Check for new schema presence
-            cursor = conn.execute("PRAGMA table_info(ACCOUNTS)")
-            cols = [info[1] for info in cursor.fetchall()]
-            count = conn.execute("SELECT COUNT(*) FROM ACCOUNTS").fetchone()[0]
-            
-            if 'EMAIL' not in cols or count < 50000:
-                regenerate = True
-        except:
-            regenerate = True
+            cursor = conn.execute("SELECT COUNT(*) FROM ACCOUNTS")
+            count = cursor.fetchone()[0]
+            if count >= 50000:
+                conn.close()
+                return
+        except Exception:
+            pass
 
-        if regenerate:
-             logger.info("Regenerating database with realistic data...")
-             conn.execute("DROP TABLE IF EXISTS ACCOUNTS")
-             conn.execute("DROP TABLE IF EXISTS TRANSACTIONS")
-             conn.execute("DROP TABLE IF EXISTS sales_invoices") 
+        logger.info("Generating seed data...")
+        conn.executescript("""
+            DROP TABLE IF EXISTS ACCOUNTS;
+            DROP TABLE IF EXISTS TRANSACTIONS;
+            CREATE TABLE ACCOUNTS (ID INTEGER PRIMARY KEY, NAME TEXT, EMAIL TEXT, ADDRESS TEXT, STATE TEXT, CREATED_AT TEXT);
+            CREATE TABLE TRANSACTIONS (ID INTEGER PRIMARY KEY, ACCOUNT_ID INTEGER, AMOUNT REAL, CURRENCY TEXT, DESCRIPTION TEXT, DATE TEXT);
+        """)
 
-             conn.execute("CREATE TABLE ACCOUNTS (ID INTEGER PRIMARY KEY, NAME TEXT, EMAIL TEXT, ADDRESS TEXT, STATE TEXT, CREATED_AT TEXT)")
-             conn.execute("CREATE TABLE TRANSACTIONS (ID INTEGER PRIMARY KEY, ACCOUNT_ID INTEGER, AMOUNT REAL, CURRENCY TEXT, DESCRIPTION TEXT, DATE TEXT)")
-             
-             logger.info("Generating 50,000 accounts...")
-             accounts = []
-             for i in range(1, 50001):
-                 accounts.append((
-                     i, 
-                     fake.name(), 
-                     fake.email(), 
-                     fake.address().replace('\n', ', '), 
-                     fake.state_abbr(),
-                     fake.date_between(start_date='-2y', end_date='today').strftime('%Y%m%d')
-                 ))
-                 
-                 if len(accounts) >= 5000:
-                     conn.executemany("INSERT INTO ACCOUNTS VALUES (?, ?, ?, ?, ?, ?)", accounts)
-                     accounts = []
-            
-             if accounts:
-                 conn.executemany("INSERT INTO ACCOUNTS VALUES (?, ?, ?, ?, ?, ?)", accounts)
-             
-             # Generate Transactions
-             logger.info("Generating transactions...")
-             txn_batch = []
-             txn_id = 1
-             for acc_id in range(1, 50001):
-                  # Generate 0-3 transactions per account
-                  for _ in range(fake.random_int(min=0, max=3)):
-                      txn_batch.append((
-                          txn_id,
-                          acc_id,
-                          round(fake.random.uniform(10.0, 5000.0), 2),
-                          fake.currency_code(),
-                          fake.bs(),
-                          fake.date_between(start_date='-1y', end_date='today').strftime('%Y%m%d')
-                      ))
-                      txn_id += 1
-                  
-                  if len(txn_batch) >= 5000:
-                       conn.executemany("INSERT INTO TRANSACTIONS VALUES (?, ?, ?, ?, ?, ?)", txn_batch)
-                       txn_batch = []
-             
-             if txn_batch:
-                 conn.executemany("INSERT INTO TRANSACTIONS VALUES (?, ?, ?, ?, ?, ?)", txn_batch)
+        # Accounts
+        accs = [(i, fake.name(), fake.email(), fake.address().replace('\n', ', '), fake.state_abbr(), 
+                 fake.date_between(start_date='-2y', end_date='today').strftime('%Y%m%d')) for i in range(1, 50001)]
+        conn.executemany("INSERT INTO ACCOUNTS VALUES (?,?,?,?,?,?)", accs)
 
-             conn.commit()
-             logger.info("Database generation complete.")
+        # Transactions
+        txns = []
+        for acc_id in range(1, 50001):
+            for _ in range(fake.random_int(0, 3)):
+                txns.append((None, acc_id, round(fake.random.uniform(10, 5000), 2), fake.currency_code(), fake.bs(),
+                             fake.date_between(start_date='-1y', end_date='today').strftime('%Y%m%d')))
+        conn.executemany("INSERT INTO TRANSACTIONS VALUES (?,?,?,?,?,?)", txns)
         
+        conn.commit()
         conn.close()
 
     def _register_tables_in_datafusion(self):
-        """
-        Registers all tables from SQLite into DataFusion as Arrow tables.
-        This follows the user's request to use RecordBatchReader for registration.
-        """
-        logger.info("Registering SQLite tables in DataFusion context...")
+        """Pre-registers SQLite tables in DataFusion for visibility in information_schema."""
+        logger.info("Pre-registering SQLite tables in DataFusion...")
         conn = sqlite3.connect(self.db_path)
         cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        tables = [row[0] for row in cursor.fetchall()]
-        conn.close()
-
+        tables = [r[0] for r in cursor.fetchall()]
+        
         for table_name in tables:
             try:
-                conn = sqlite3.connect(self.db_path)
                 cursor = conn.execute(f"SELECT * FROM {table_name}")
                 col_names = [col[0] for col in cursor.description]
-                rows = cursor.fetchall()
-                conn.close()
-
-                if not rows:
-                    continue
-
-                # Convert to Arrow Batch
-                # Normalize column names to lowercase for easier SQL querying without quotes
-                cols = list(zip(*rows))
-                batch = pa.RecordBatch.from_arrays(
-                    [pa.array(c) for c in cols],
-                    names=[n.lower() for n in col_names]
-                )
+                normalized_names = [n.lower() for n in col_names]
                 
-                # Register in DataFusion
-                self.ctx.register_record_batches(table_name, [[batch]])
-                logger.info(f"Table '{table_name}' registered in DataFusion.")
+                batches = []
+                while True:
+                    rows = cursor.fetchmany(1000)
+                    if not rows: break
+                    
+                    cols = list(zip(*rows))
+                    batches.append(pa.RecordBatch.from_arrays(
+                        [pa.array(c) for c in cols],
+                        names=normalized_names
+                    ))
+                
+                if batches:
+                    self.ctx.register_record_batches(table_name.lower(), [batches])
+                    logger.info(f"Pre-registered table '{table_name.lower()}'")
             except Exception as e:
-                logger.error(f"Failed to register table {table_name}: {e}")
-
-    def list_flights(self, context, criteria):
-        """
-        Mevcut sorgu şablonlarını listeler.
-        """
-        seen_templates = set()
+                logger.warning(f"Failed to pre-register {table_name}: {e}")
         
-        for query_dir in self.query_dirs:
-            if not query_dir.exists():
-                continue
-                
-            for path in query_dir.glob("*.yaml"):
-                if path.name in seen_templates: continue
-                
-                try:
-                    with open(path, 'r', encoding='utf-8') as f:
-                        config = yaml.safe_load(f)
-                    
-                    meta = TemplateMetadata.from_dict(path.name, config)
-                    seen_templates.add(path.name)
-                    
-                    descriptor_data = {"template": meta.name, "metadata": asdict(meta)}
-                    descriptor = pa.flight.FlightDescriptor.for_command(json.dumps(descriptor_data).encode('utf-8'))
-                    
-                    yield pa.flight.FlightInfo(
-                        pa.schema([]), descriptor, 
-                        [pa.flight.FlightEndpoint(descriptor.command, [self.location])], 
-                        -1, -1
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to load template {path}: {e}")
-                    continue
+        conn.close()
 
-    def _render_query(self, cmd: QueryCommand):
+    def _render_query(self, cmd: QueryCommand) -> str:
+        """Processes Jinja templates into SQL strings."""
         criteria = {k: SqlWrapper(v, k, jinja_env=self.jinja_env) for k, v in cmd.criteria.items()}
         
-        # Ad-hoc SQL execution (via cmd.query)
-        if cmd.query:
-            try:
-                template = self.jinja_env.from_string(cmd.query)
-                sql = template.render(**criteria)
-                logger.debug(f"Rendered Ad-hoc SQL:\n{sql}")
-                return sql
-            except Exception as e:
-                logger.exception("Error rendering ad-hoc SQL")
-                raise
-
-        # File-based Execution (via cmd.template)
-        yaml_path = None
-        for d in self.query_dirs:
-            p = d / cmd.template
-            if p.exists():
-                yaml_path = p
-                break
+        source = cmd.query
+        if not source and cmd.template:
+            for d in self.query_dirs:
+                p = d / cmd.template
+                if p.exists():
+                    with open(p, 'r', encoding='utf-8') as f:
+                        source = yaml.safe_load(f).get('sql', '')
+                    break
         
-        if not yaml_path:
-            logger.error(f"Template not found: {cmd.template}")
-            raise FileNotFoundError(f"YAML query file not found: {cmd.template}")
+        if not source:
+            raise FileNotFoundError(f"Query source not found for template: {cmd.template}")
 
         try:
-            with open(yaml_path, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
-                sql_template_str = config.get('sql', '')
-                template = self.jinja_env.from_string(sql_template_str)
-            
-            sql = template.render(**criteria)
-            logger.debug(f"Rendered SQL for {cmd.template}:\n{sql}")
-            return sql
+            template = self.jinja_env.from_string(source)
+            return template.render(**criteria)
         except Exception as e:
-            logger.exception(f"Error rendering template {cmd.template}")
+            logger.exception("Template rendering failed")
             raise
 
+    def list_flights(self, context, criteria):
+        seen = set()
+        for q_dir in self.query_dirs:
+            if not q_dir.exists(): continue
+            for path in q_dir.glob("*.yaml"):
+                if path.name in seen: continue
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        meta = TemplateMetadata.from_dict(path.name, yaml.safe_load(f))
+                    seen.add(path.name)
+                    desc = pa.flight.FlightDescriptor.for_command(json.dumps({"template": meta.name, "metadata": asdict(meta)}).encode())
+                    yield pa.flight.FlightInfo(pa.schema([]), desc, [pa.flight.FlightEndpoint(desc.command, [self.location])], -1, -1)
+                except Exception:
+                    continue
+
     def get_flight_info(self, context, descriptor):
-        cmd = QueryCommand.from_json(descriptor.command.decode('utf-8'))
+        cmd = QueryCommand.from_json(descriptor.command.decode())
         sql = self._render_query(cmd)
-        
-        # Use DataFusion to infer schema
         try:
             df = self.ctx.sql(sql)
-            schema = df.schema()
-            logger.info(f"Flight info metadata generated for {cmd.template} via DataFusion")
+            return pa.flight.FlightInfo(df.schema(), descriptor, [pa.flight.FlightEndpoint(pa.flight.Ticket(descriptor.command), [self.location])], -1, -1)
         except Exception as e:
-            logger.error(f"DataFusion SQL Pre-execution failed. SQL was:\n{sql}")
-            raise pa.flight.FlightServerError(f"DataFusion SQL Error: {e}")
-
-        ticket = pa.flight.Ticket(descriptor.command)
-        endpoints = [pa.flight.FlightEndpoint(ticket, [self.location])]
-        return pa.flight.FlightInfo(schema, descriptor, endpoints, -1, -1)
+            logger.error(f"Schema inference failed. SQL:\n{sql}")
+            raise pa.flight.FlightServerError(f"DataFusion Error: {e}")
 
     def do_get(self, context, ticket):
         try:
-            cmd = QueryCommand.from_json(ticket.ticket.decode('utf-8'))
+            cmd = QueryCommand.from_json(ticket.ticket.decode())
             sql = self._render_query(cmd)
-            logger.info(f"Executing query for {cmd.template} via DataFusion")
-
-            # Execute via DataFusion
             df = self.ctx.sql(sql)
             
-            # Use collect() to get batches
-            batches = df.collect()
+            # Low-memory streaming using a generator
+            stream = df.execute_stream()
+            def batch_gen():
+                for b in stream:
+                    yield b.to_pyarrow()
             
-            # Create a reader from the batches
-            schema = df.schema()
-            reader = pa.RecordBatchReader.from_batches(schema, batches)
-            
-            return pa.flight.RecordBatchStream(reader)
+            return pa.flight.RecordBatchStream(pa.RecordBatchReader.from_batches(df.schema(), batch_gen()))
         except Exception as e:
-            logger.exception("Error in do_get via DataFusion")
+            logger.exception("Query execution failed")
             raise

@@ -81,8 +81,27 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     const [currentWorkflowId, setCurrentWorkflowId] = useState<string | null>(null)
     const containerRef = useRef<HTMLDivElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
-    const queryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+    const [dbSchema, setDbSchema] = useState(sampleSchema)
     const queryStatusRef = useRef<"completed" | "cancelled" | null>(null)
+
+    // Schema Fetching
+    const refreshSchema = useCallback(async () => {
+        try {
+            const res = await fetch("/api/flight/schema")
+            if (res.ok) {
+                const data = await res.json()
+                setDbSchema(data)
+            }
+        } catch (err) {
+            console.error("Failed to fetch schema:", err)
+        }
+    }, [])
+
+    useEffect(() => {
+        if (mounted) {
+            refreshSchema()
+        }
+    }, [mounted, refreshSchema])
 
     // Hook integration
     const {
@@ -98,6 +117,19 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         handleCancelQuery,
         processQuery
     } = useQueryExecution({ variables })
+
+    const handleRunQueryWrapper = useCallback(async (queryToRun?: string) => {
+        const targetQuery = typeof queryToRun === 'string' ? queryToRun : query
+        const result = await executeQuery(targetQuery)
+
+        if (result?.missingRequired) {
+            setVariablesPanelOpen(true)
+            setSchemaPanelOpen(false)
+        } else if (result?.success) {
+            // Refresh schema after query, as reader tags might have added new tables
+            refreshSchema()
+        }
+    }, [query, executeQuery, refreshSchema])
 
 
     // YAML dosyasına kaydet
@@ -340,15 +372,6 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     }, [variables, selectedVariable])
 
 
-    const handleRunQueryWrapper = useCallback(async (queryToRun?: string) => {
-        const targetQuery = typeof queryToRun === 'string' ? queryToRun : query
-        const result = await executeQuery(targetQuery)
-
-        if (result?.missingRequired) {
-            setVariablesPanelOpen(true)
-            setSchemaPanelOpen(false)
-        }
-    }, [query, executeQuery])
 
     const handleTableClick = useCallback((identifier: string) => {
         // Tablo veya kolon adını editöre ekle
@@ -522,6 +545,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                         editorHeight={editorHeight}
                                         isResizing={isResizing}
                                         onResizeStart={handleResizeStart}
+                                        schema={dbSchema}
                                         readOnly={activeTab === "preview"}
                                     />
                                 )}
@@ -559,7 +583,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                 </div>
                                 <div className="flex-1 overflow-hidden">
                                     <SchemaPanel
-                                        schema={sampleSchema}
+                                        schema={dbSchema}
                                         onTableClick={handleTableClick}
                                         onClose={() => setSchemaPanelOpen(false)}
                                     />

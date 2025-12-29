@@ -1,9 +1,8 @@
-"use client"
-
-import { useRef, useCallback } from "react"
+import { useRef, useCallback, useEffect } from "react"
 import dynamic from "next/dynamic"
 import { Button } from "@/components/ui/button"
 import { Play, Square, GripHorizontal } from "lucide-react"
+import type { Schema } from "../lib/types"
 
 // Ace Editor'ı dinamik olarak yükle (SSR desteği yok)
 const AceEditor = dynamic(
@@ -14,6 +13,11 @@ const AceEditor = dynamic(
     await import("ace-builds/src-noconflict/theme-tomorrow_night")
     await import("ace-builds/src-noconflict/theme-tomorrow")
     await import("ace-builds/src-noconflict/ext-language_tools")
+
+    // Ace'in global davranışını bozmadan dinamik şemayı desteklemek için bir referans tutuyoruz
+    if (typeof window !== "undefined") {
+      (window as any).__ACE_SCHEMA__ = null;
+    }
 
     // SQL anahtar kelimeleri
     const sqlKeywords = [
@@ -26,21 +30,6 @@ const AceEditor = dynamic(
       "CHECK", "CONSTRAINT", "CASCADE", "UNION", "INTERSECT", "EXCEPT", "ALL",
       "EXISTS", "CASE", "WHEN", "THEN", "ELSE", "END", "CAST", "COALESCE",
       "NULLIF", "TRUE", "FALSE", "ASC", "DESC", "IS", "IS NOT"
-    ]
-
-    // Tablo isimleri
-    const tableNames = [
-      "ACCOUNTS", "ANALYTIC_EVENTS", "FEEDBACK", "INVOICES",
-      "ORDERS", "PEOPLE", "PRODUCTS", "REVIEWS"
-    ]
-
-    // Kolon isimleri
-    const columnNames = [
-      "ID", "EMAIL", "FIRST_NAME", "LAST_NAME", "PLAN", "SOURCE", "SEATS",
-      "CREATED_AT", "TRIAL_ENDS_AT", "CANCELED_AT", "ACTIVE_SUBSCRIPTION",
-      "ACCOUNT_ID", "EVENT_TYPE", "EVENT_DATA", "RATING", "COMMENT",
-      "AMOUNT", "STATUS", "DUE_DATE", "PAID_AT", "USER_ID", "PRODUCT_ID",
-      "QUANTITY", "TOTAL", "NAME", "CITY", "CATEGORY", "PRICE", "VENDOR"
     ]
 
     // Nunjucks / Özel Filtreler ve Açıklamaları
@@ -77,17 +66,40 @@ const AceEditor = dynamic(
     }
     const nunjucksKeywords = Object.keys(keywordDetails)
 
-
-
     // Custom completer ekle
     const customCompleter = {
       getCompletions: (
-        _editor: unknown,
-        _session: unknown,
-        _pos: unknown,
+        _editor: any,
+        _session: any,
+        _pos: any,
         _prefix: string,
-        callback: (error: null, completions: Array<{ caption: string, value: string, meta: string, score: number, docHTML?: string, docText?: string }>) => void
+        callback: (error: null, completions: any[]) => void
       ) => {
+        const currentSchema = (window as any).__ACE_SCHEMA__ as Schema | null;
+
+        let dynamicTables: any[] = [];
+        let dynamicColumns: any[] = [];
+
+        if (currentSchema && currentSchema.tables) {
+          currentSchema.tables.forEach((table) => {
+            dynamicTables.push({
+              caption: table.name,
+              value: table.name,
+              meta: "table",
+              score: 950
+            });
+
+            table.columns.forEach((col) => {
+              dynamicColumns.push({
+                caption: col.name,
+                value: col.name,
+                meta: `${table.name} column`,
+                score: 850,
+                docHTML: `<b>${col.name}</b> (${col.type})<br/>Table: ${table.name}`
+              });
+            });
+          });
+        }
 
         const completions = [
           ...sqlKeywords.map(kw => ({
@@ -96,18 +108,8 @@ const AceEditor = dynamic(
             meta: "keyword",
             score: 1000
           })),
-          ...tableNames.map(t => ({
-            caption: t,
-            value: t,
-            meta: "table",
-            score: 900
-          })),
-          ...columnNames.map(c => ({
-            caption: c,
-            value: c,
-            meta: "column",
-            score: 800
-          })),
+          ...dynamicTables,
+          ...dynamicColumns,
           ...customFilters.map(f => ({
             caption: f,
             value: f,
@@ -123,7 +125,6 @@ const AceEditor = dynamic(
             docHTML: `<b>${k}</b><hr/>${keywordDetails[k]}`
           }))
         ]
-
 
         callback(null, completions)
       }
@@ -196,6 +197,7 @@ interface SQLEditorProps {
   editorHeight: number
   isResizing: boolean
   onResizeStart: (e: React.MouseEvent) => void
+  schema: Schema
   readOnly?: boolean
 }
 
@@ -209,9 +211,17 @@ export function SQLEditor({
   editorHeight,
   isResizing,
   onResizeStart,
+  schema,
   readOnly = false,
 }: SQLEditorProps) {
   const editorInstanceRef = useRef<any>(null)
+
+  // Update the global schema reference for the Ace completer
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as any).__ACE_SCHEMA__ = schema;
+    }
+  }, [schema])
 
   const handleExecute = useCallback(() => {
 
