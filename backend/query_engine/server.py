@@ -251,25 +251,30 @@ class StreamFlightServer(pa.flight.FlightServerBase):
             logger.info(f"Executing query for {cmd.template}")
 
             conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
+            # Row factory'yi kaldırıyoruz, ham tuple'lar daha hızlıdır
             try:
                 cursor = conn.execute(sql)
             except sqlite3.Error as e:
                 logger.error(f"SQL execution failed in do_get. SQL:\n{sql}")
                 raise pa.flight.FlightServerError(f"SQL Runtime Error: {e}")
             
+            # Kolon isimlerini alalım
+            col_names = [col[0] for col in cursor.description]
+            
             # Şemayı kesinleştirmek için ilk bloğu alalım
             first_block = cursor.fetchmany(1000)
             if not first_block:
-                # Sonuç boşsa
-                fields = [pa.field(col[0], pa.string()) for col in cursor.description]
+                fields = [pa.field(name, pa.string()) for name in col_names]
                 schema = pa.schema(fields)
                 return pa.flight.RecordBatchStream(pa.RecordBatchReader.from_batches(schema, []))
 
             # İlk bloktan şemayı çıkaralım
-            # dict(row) kullanarak Arrow'un tip çıkarımı yapmasını sağlıyoruz
-            keys = first_block[0].keys()
-            sample_batch = pa.RecordBatch.from_pylist([dict(r) for r in first_block])
+            # zip(*block) ile satır listesini (N, K) kolon listesine (K, N) çeviriyoruz
+            columns = list(zip(*first_block))
+            sample_batch = pa.RecordBatch.from_arrays(
+                [pa.array(col) for col in columns],
+                names=col_names
+            )
             schema = sample_batch.schema
 
             def batch_generator():
@@ -278,14 +283,19 @@ class StreamFlightServer(pa.flight.FlightServerBase):
 
                 # Kalanları döngüde gönder
                 while True:
-                    rows = cursor.fetchmany(5000)
+                    rows = cursor.fetchmany(10000)
                     if not rows:
                         break
                     
-                    # Verimlilik için list comprehension + from_pylist
-                    # from_pylist, dict listesini verimli bir şekilde RecordBatch'e çevirir
-                    batch = pa.RecordBatch.from_pylist([dict(r) for r in rows], schema=schema)
+                    # Kolon bazlı (columnar) çevrim
+                    cols = list(zip(*rows))
+                    batch = pa.RecordBatch.from_arrays(
+                        [pa.array(c) for c in cols],
+                        schema=schema
+                    )
                     yield batch
+                
+                conn.close()
                 
                 conn.close()
 

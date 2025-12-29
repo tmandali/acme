@@ -87,6 +87,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     // Hook integration
     const {
         results,
+        totalRows,
         setResults,
         isLoading,
         executionTime,
@@ -533,6 +534,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                 <div className="flex-1 overflow-hidden">
                                     <ResultsTable
                                         results={results}
+                                        totalRows={totalRows}
                                         isLoading={isLoading}
                                         executionTime={executionTime}
                                         queryStatus={queryStatus}

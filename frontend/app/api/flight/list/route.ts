@@ -1,25 +1,52 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exec } from "child_process";
+import * as grpc from "@grpc/grpc-js";
+import * as protoLoader from "@grpc/proto-loader";
 import path from "path";
 
+// Load Protobuf from consistent location
+const PROTO_PATH = path.join(process.cwd(), "app/api/flight/Flight.proto");
+const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
+    keepCase: true,
+    longs: String,
+    enums: String,
+    defaults: true,
+    oneofs: true,
+    includeDirs: [path.join(process.cwd(), "app/api/flight")]
+});
+
+const grpcObj: any = grpc.loadPackageDefinition(packageDefinition);
+const flightProto = grpcObj.arrow.flight.protocol;
+
 export async function GET(request: NextRequest) {
-    const pythonPath = path.join(process.cwd(), "../backend/.venv/bin/python");
-    const scriptPath = path.join(process.cwd(), "../backend/bridge.py");
+    const location = process.env.ARROW_FLIGHT_URL || "localhost:8815";
+    const client = new flightProto.FlightService(location, grpc.credentials.createInsecure());
+
+    const templates: any[] = [];
 
     return new Promise((resolve) => {
-        exec(`${pythonPath} ${scriptPath} list`, (error, stdout, stderr) => {
-            if (error) {
-                console.error("Bridge Error:", stderr);
-                resolve(NextResponse.json({ error: "Failed to fetch templates" }, { status: 500 }));
-                return;
-            }
+        const call = client.ListFlights({ expression: Buffer.alloc(0) });
+
+        call.on("data", (info: any) => {
             try {
-                const data = JSON.parse(stdout);
-                resolve(NextResponse.json(data));
+                if (info.flight_descriptor && info.flight_descriptor.cmd) {
+                    const cmdText = Buffer.from(info.flight_descriptor.cmd).toString("utf-8");
+                    const cmd = JSON.parse(cmdText);
+                    templates.push(cmd);
+                }
             } catch (e) {
-                console.error("JSON Parse Error:", stdout);
-                resolve(NextResponse.json({ error: "Invalid response from bridge" }, { status: 500 }));
+                console.error("Error parsing flight info:", e);
             }
+        });
+
+        call.on("end", () => {
+            client.close();
+            resolve(NextResponse.json(templates));
+        });
+
+        call.on("error", (err: any) => {
+            console.error("ListFlights Error:", err);
+            client.close();
+            resolve(NextResponse.json({ error: err.message }, { status: 500 }));
         });
     });
 }
