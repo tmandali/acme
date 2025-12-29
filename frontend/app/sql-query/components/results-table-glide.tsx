@@ -192,10 +192,28 @@ export function ResultsTableGlide({
             <div className="flex items-center justify-between px-3 h-8 border-b bg-muted/30 backdrop-blur-sm sticky top-0 z-10">
                 <div className="flex items-center gap-3">
                     <div className="flex items-center gap-1.5 pr-3 border-r">
-                        {isLoading ? <Loader2 className="h-3 w-3 animate-spin text-blue-500" /> : <CheckCircle2 className="h-3 w-3 text-emerald-500" />}
-                        <span className="text-[11px] font-semibold tracking-tight">
-                            {rowCount.toLocaleString("tr-TR")}
+                        {isLoading ? (
+                            <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
+                        ) : (
+                            <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                        )}
+                        <span className="text-[11px] font-semibold tracking-tight flex items-center">
+                            <span>{rowCount.toLocaleString("tr-TR")}</span>
                             <span className="text-muted-foreground ml-1 font-normal">satır</span>
+
+                            {!isLoading && executionTime !== undefined && (
+                                <span className="flex items-center gap-1 ml-3 pl-3 border-l text-muted-foreground font-normal">
+                                    <Clock className="h-3 w-3 opacity-60" />
+                                    {formatTime(executionTime)}
+                                </span>
+                            )}
+
+                            {isLoading && elapsedTime > 0 && (
+                                <span className="flex items-center gap-1 ml-3 pl-3 border-l text-blue-500/70 font-normal">
+                                    <Clock className="h-3 w-3 opacity-60 animate-pulse" />
+                                    {formatTime(elapsedTime)}
+                                </span>
+                            )}
                         </span>
                     </div>
                 </div>
