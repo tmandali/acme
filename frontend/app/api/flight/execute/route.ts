@@ -4,8 +4,8 @@ import path from "path";
 
 export async function POST(request: NextRequest) {
     const body = await request.json();
-    const pythonPath = path.join(process.cwd(), ".venv/bin/python");
-    const scriptPath = path.join(process.cwd(), "flight_query_server/bridge.py");
+    const pythonPath = path.join(process.cwd(), "../backend/.venv/bin/python");
+    const scriptPath = path.join(process.cwd(), "../backend/bridge.py");
     const commandJson = JSON.stringify(body);
 
     const encoder = new TextEncoder();

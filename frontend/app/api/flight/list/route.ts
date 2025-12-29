@@ -3,8 +3,8 @@ import { exec } from "child_process";
 import path from "path";
 
 export async function GET(request: NextRequest) {
-    const pythonPath = path.join(process.cwd(), ".venv/bin/python");
-    const scriptPath = path.join(process.cwd(), "flight_query_server/bridge.py");
+    const pythonPath = path.join(process.cwd(), "../backend/.venv/bin/python");
+    const scriptPath = path.join(process.cwd(), "../backend/bridge.py");
 
     return new Promise((resolve) => {
         exec(`${pythonPath} ${scriptPath} list`, (error, stdout, stderr) => {
