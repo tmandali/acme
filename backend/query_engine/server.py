@@ -8,6 +8,8 @@ import pyarrow as pa
 import pyarrow.flight
 from jinja2 import Environment, FileSystemLoader
 from faker import Faker
+import logging
+import datafusion
 
 from .models import QueryCommand, SqlWrapper, TemplateMetadata
 from .filters import (
@@ -15,8 +17,6 @@ from .filters import (
     filter_gt, filter_lt, filter_gte, filter_lte, filter_ne, filter_like,
     filter_start, filter_end
 )
-
-import logging
 from .types import sqlite_to_arrow_type
 
 # Logging setup
@@ -56,7 +56,13 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         
         self.jinja_env.globals["now"] = datetime.now().strftime("%Y%m%d")
         self.jinja_env.globals["zip"] = zip
+        
+        # Initialize DataFusion Context with Information Schema enabled
+        config = datafusion.SessionConfig().with_information_schema(True)
+        self.ctx = datafusion.SessionContext(config)
+        
         self._init_db()
+        self._register_tables_in_datafusion()
 
     def _init_db(self):
         logger.info(f"Initializing database at {self.db_path}")
@@ -133,6 +139,41 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         
         conn.close()
 
+    def _register_tables_in_datafusion(self):
+        """
+        Registers all tables from SQLite into DataFusion as Arrow tables.
+        This follows the user's request to use RecordBatchReader for registration.
+        """
+        logger.info("Registering SQLite tables in DataFusion context...")
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = [row[0] for row in cursor.fetchall()]
+        conn.close()
+
+        for table_name in tables:
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.execute(f"SELECT * FROM {table_name}")
+                col_names = [col[0] for col in cursor.description]
+                rows = cursor.fetchall()
+                conn.close()
+
+                if not rows:
+                    continue
+
+                # Convert to Arrow Batch
+                # Normalize column names to lowercase for easier SQL querying without quotes
+                cols = list(zip(*rows))
+                batch = pa.RecordBatch.from_arrays(
+                    [pa.array(c) for c in cols],
+                    names=[n.lower() for n in col_names]
+                )
+                
+                # Register in DataFusion
+                self.ctx.register_record_batches(table_name, [[batch]])
+                logger.info(f"Table '{table_name}' registered in DataFusion.")
+            except Exception as e:
+                logger.error(f"Failed to register table {table_name}: {e}")
 
     def list_flights(self, context, criteria):
         """
@@ -209,36 +250,14 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         cmd = QueryCommand.from_json(descriptor.command.decode('utf-8'))
         sql = self._render_query(cmd)
         
-        conn = sqlite3.connect(self.db_path)
+        # Use DataFusion to infer schema
         try:
-            # Tip belirleme için sorguyu LIMIT 0 ile çalıştır
-            clean_sql = sql.strip().rstrip(';') + "\n"
-            try:
-                # SQLite'da tip bilgisini en iyi PRAGMA table_info veya bir örnek satır ile alabiliriz.
-                # Ancak dinamik sorgularda en güvenlisi bir örnek üzerinde Arrow'un tip çıkarımını kullanmaktır.
-                cursor = conn.execute(f"SELECT * FROM ({clean_sql}) AS sub LIMIT 1")
-                row = cursor.fetchone()
-                
-                if row:
-                    # Örnek veri varsa Arrow otomatik tip çıkarımı yapsın
-                    keys = row.keys()
-                    sample_batch = pa.RecordBatch.from_pylist([dict(row)])
-                    schema = sample_batch.schema
-                else:
-                    # Veri yoksa string olarak kolon isimlerini al
-                    fields = [pa.field(col[0], pa.string()) for col in cursor.description]
-                    schema = pa.schema(fields)
-                    
-            except sqlite3.Error as e:
-                logger.error(f"SQL Pre-execution failed. SQL was:\n{sql}")
-                msg = str(e)
-                if "incomplete input" in msg:
-                     msg += " (Query might be incomplete or malformed)"
-                raise pa.flight.FlightServerError(f"SQL Syntax Error: {msg}")
-            
-            logger.info(f"Flight info metadata generated for {cmd.template}")
-        finally:
-            conn.close()
+            df = self.ctx.sql(sql)
+            schema = df.schema()
+            logger.info(f"Flight info metadata generated for {cmd.template} via DataFusion")
+        except Exception as e:
+            logger.error(f"DataFusion SQL Pre-execution failed. SQL was:\n{sql}")
+            raise pa.flight.FlightServerError(f"DataFusion SQL Error: {e}")
 
         ticket = pa.flight.Ticket(descriptor.command)
         endpoints = [pa.flight.FlightEndpoint(ticket, [self.location])]
@@ -248,60 +267,19 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         try:
             cmd = QueryCommand.from_json(ticket.ticket.decode('utf-8'))
             sql = self._render_query(cmd)
-            logger.info(f"Executing query for {cmd.template}")
+            logger.info(f"Executing query for {cmd.template} via DataFusion")
 
-            conn = sqlite3.connect(self.db_path)
-            # Row factory'yi kaldırıyoruz, ham tuple'lar daha hızlıdır
-            try:
-                cursor = conn.execute(sql)
-            except sqlite3.Error as e:
-                logger.error(f"SQL execution failed in do_get. SQL:\n{sql}")
-                raise pa.flight.FlightServerError(f"SQL Runtime Error: {e}")
+            # Execute via DataFusion
+            df = self.ctx.sql(sql)
             
-            # Kolon isimlerini alalım
-            col_names = [col[0] for col in cursor.description]
+            # Use collect() to get batches
+            batches = df.collect()
             
-            # Şemayı kesinleştirmek için ilk bloğu alalım
-            first_block = cursor.fetchmany(1000)
-            if not first_block:
-                fields = [pa.field(name, pa.string()) for name in col_names]
-                schema = pa.schema(fields)
-                return pa.flight.RecordBatchStream(pa.RecordBatchReader.from_batches(schema, []))
-
-            # İlk bloktan şemayı çıkaralım
-            # zip(*block) ile satır listesini (N, K) kolon listesine (K, N) çeviriyoruz
-            columns = list(zip(*first_block))
-            sample_batch = pa.RecordBatch.from_arrays(
-                [pa.array(col) for col in columns],
-                names=col_names
-            )
-            schema = sample_batch.schema
-
-            def batch_generator():
-                # İlk bloğu gönder
-                yield sample_batch
-
-                # Kalanları döngüde gönder
-                while True:
-                    rows = cursor.fetchmany(10000)
-                    if not rows:
-                        break
-                    
-                    # Kolon bazlı (columnar) çevrim
-                    cols = list(zip(*rows))
-                    batch = pa.RecordBatch.from_arrays(
-                        [pa.array(c) for c in cols],
-                        schema=schema
-                    )
-                    yield batch
-                
-                conn.close()
-                
-                conn.close()
-
-            # RecordBatchReader kullanarak daha "direkt" bir stream yapısı
-            reader = pa.RecordBatchReader.from_batches(schema, batch_generator())
+            # Create a reader from the batches
+            schema = df.schema()
+            reader = pa.RecordBatchReader.from_batches(schema, batches)
+            
             return pa.flight.RecordBatchStream(reader)
         except Exception as e:
-            logger.exception("Error in do_get")
+            logger.exception("Error in do_get via DataFusion")
             raise
