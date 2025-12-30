@@ -1,0 +1,7 @@
+pyyaml
+datafusion
+pyarrow
+jinja2
+faker
+pytest
+pandas
