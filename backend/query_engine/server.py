@@ -115,7 +115,29 @@ class StreamFlightServer(pa.flight.FlightServerBase):
             return pa.flight.RecordBatchStream(pa.RecordBatchReader.from_batches(df.schema(), batch_gen()))
         except Exception as e:
             logger.exception("Query execution failed")
-            raise
+            # Clean up error message for display
+            msg = str(e)
+            
+            # Remove DataFusion specific prefixes
+            if "DataFusion error: Execution" in msg:
+                # Extract the inner message: Execution("...")
+                import re
+                match = re.search(r'Execution\("(.*?)"\)', msg)
+                if match:
+                    msg = match.group(1)
+                else:
+                    msg = msg.split("Execution(")[-1].rstrip(")")
+            
+            # Remove Python traceback details if present (often starts with Detail: Python exception:)
+            if "Detail: Python exception" in msg:
+                msg = msg.split("Detail: Python exception")[0].strip()
+            
+            # Handle standard "Table '...' already exists" or "doesn't exist" clean up if regex didn't catch it perfectly
+            if "already exists" in msg or "doesn't exist" in msg:
+                 # Try to keep just the relevant part if there's still noise
+                 pass
+
+            raise pa.flight.FlightServerError(msg)
 
     def _execute_on_external(self, conn_str, query):
         """Executes query directly on external connection and returns Flight stream."""

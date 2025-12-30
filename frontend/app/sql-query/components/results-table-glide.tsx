@@ -31,6 +31,9 @@ export function ResultsTableGlide({
     isLoading,
     executionTime,
     queryStatus,
+    error,
+    executedQuery,
+    connectionName,
     isFullscreen = false,
     onToggleFullscreen
 }: ResultsTableProps) {
@@ -178,6 +181,27 @@ export function ResultsTableGlide({
         )
     }
 
+    if (!isLoading && error) {
+        return (
+            <div className="h-full flex flex-col items-center justify-center bg-background p-6 text-center">
+                <XCircle className="h-12 w-12 text-red-500/50 mb-4" />
+                <p className="text-sm text-foreground font-medium mb-2">Sorgu Hatası</p>
+                <div className="max-w-2xl overflow-auto max-h-[200px] p-4 bg-red-50 dark:bg-red-950/20 text-red-900 dark:text-red-200 rounded-md font-mono text-xs whitespace-pre-wrap border border-red-200 dark:border-red-900/50 mb-4">
+                    {error}
+                </div>
+
+                {executedQuery && (
+                    <div className="max-w-2xl w-full bg-muted/30 border rounded-md p-3 text-left">
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-semibold">{connectionName || "Sorgu Detayı"}</p>
+                        <code className="text-xs font-mono text-foreground/80 block whitespace-pre-wrap max-h-[150px] overflow-auto">
+                            {executedQuery.length > 500 ? executedQuery.substring(0, 500) + "..." : executedQuery}
+                        </code>
+                    </div>
+                )}
+            </div>
+        )
+    }
+
     if (!isLoading && queryStatus === null && rowCount === 0) {
         return (
             <div className="h-full flex flex-col items-center justify-center bg-background">
@@ -189,12 +213,22 @@ export function ResultsTableGlide({
 
     if (!isLoading && queryStatus === 'completed' && rowCount === 0) {
         return (
-            <div className="h-full flex flex-col items-center justify-center bg-background">
+            <div className="h-full flex flex-col items-center justify-center bg-background p-6">
                 <CheckCircle2 className="h-12 w-12 text-emerald-500/50 mb-4" />
                 <p className="text-sm text-foreground font-medium">Sorgu Başarıyla Çalıştırıldı</p>
-                <p className="text-xs text-muted-foreground mt-1">İşlem tamamlandı, dönecek veri yok.</p>
+                <p className="text-xs text-muted-foreground mt-1 mb-4">İşlem tamamlandı, dönecek veri yok.</p>
+
+                {executedQuery && (
+                    <div className="max-w-2xl w-full bg-muted/30 border rounded-md p-3 mb-4">
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-semibold">{connectionName || "Sorgu Detayı"}</p>
+                        <code className="text-xs font-mono text-foreground/80 block whitespace-pre-wrap max-h-[150px] overflow-auto">
+                            {executedQuery.length > 500 ? executedQuery.substring(0, 500) + "..." : executedQuery}
+                        </code>
+                    </div>
+                )}
+
                 {executionTime !== undefined && (
-                    <p className="text-[10px] text-muted-foreground mt-4 px-2 py-1 bg-muted rounded-full">
+                    <p className="text-[10px] text-muted-foreground px-2 py-1 bg-muted rounded-full">
                         Süre: {formatTime(executionTime)}
                     </p>
                 )}

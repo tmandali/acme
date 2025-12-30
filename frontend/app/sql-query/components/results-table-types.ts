@@ -12,6 +12,9 @@ export interface ResultsTableProps {
     isLoading: boolean
     executionTime?: number
     queryStatus?: "completed" | "cancelled" | null
+    error?: string | null
+    executedQuery?: string
+    connectionName?: string
     isFullscreen?: boolean
     onToggleFullscreen?: () => void
 }

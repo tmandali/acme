@@ -167,7 +167,8 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         setErrorDetail,
         handleRunQuery: executeQuery,
         handleCancelQuery,
-        processQuery
+        processQuery,
+        executedQuery
     } = useQueryExecution({ variables, sessionId })
 
     const handleRefreshTable = useCallback(async (tableName: string) => {
@@ -712,6 +713,9 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                         isLoading={isLoading}
                                         executionTime={executionTime}
                                         queryStatus={queryStatus}
+                                        error={errorDetail}
+                                        executedQuery={executedQuery || undefined}
+                                        connectionName={connections.find(c => c.id === selectedConnectionId)?.name}
                                         isFullscreen={isResultsFullscreen}
                                         onToggleFullscreen={() => setIsResultsFullscreen(prev => !prev)}
                                     />
@@ -770,33 +774,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                             </div>
                         )
                     }
-                </div >
-
-                <Dialog open={!!errorDetail} onOpenChange={(open) => {
-                    if (!open) {
-                        setErrorDetail(null)
-                        // Wait a bit for dialog transition to start/finish so focus isn't stolen back
-                        setTimeout(() => editorRef.current?.focus(), 50)
-                    }
-                }}>
-                    <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
-                        <DialogHeader>
-                            <DialogTitle className="text-red-600 dark:text-red-400">Hata Detayı</DialogTitle>
-                            <DialogDescription>
-                                Sorgu çalıştırılırken sunucudan aşağıdaki hata döndü.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <div className="flex-1 overflow-auto p-4 bg-red-50 dark:bg-red-950/30 text-red-900 dark:text-red-200 rounded-md font-mono text-xs whitespace-pre-wrap border border-red-200 dark:border-red-900">
-                            {errorDetail}
-                        </div>
-                        <DialogFooter>
-                            <Button variant="outline" onClick={() => {
-                                setErrorDetail(null)
-                                setTimeout(() => editorRef.current?.focus(), 50)
-                            }}>Kapat</Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
+                </div>
             </SidebarInset >
         </SidebarProvider >
     )

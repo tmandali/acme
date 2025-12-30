@@ -16,6 +16,7 @@ export function useQueryExecution({ variables, sessionId }: UseQueryExecutionPro
     const [executionTime, setExecutionTime] = useState<number>()
     const [queryStatus, setQueryStatus] = useState<"completed" | "cancelled" | null>(null)
     const [errorDetail, setErrorDetail] = useState<string | null>(null)
+    const [executedQuery, setExecutedQuery] = useState<string | null>(null)
     const abortControllerRef = useRef<AbortController | null>(null)
 
     const processQuery = useCallback((sqlQuery: string) => {
@@ -39,6 +40,7 @@ export function useQueryExecution({ variables, sessionId }: UseQueryExecutionPro
         setExecutionTime(undefined)
         setQueryStatus(null)
         setErrorDetail(null)
+        setExecutedQuery(queryToRun) // Store the query being executed
 
         const criteria: Record<string, any> = {};
         variables.forEach(v => {
@@ -113,7 +115,7 @@ export function useQueryExecution({ variables, sessionId }: UseQueryExecutionPro
                 setQueryStatus("cancelled")
             } else {
                 setErrorDetail(e.message)
-                toast.error("Sorgu hatası")
+                // toast.error("Sorgu hatası") - Gerek yok, arayüzde gösteriyoruz
             }
         } finally {
             setIsLoading(false)
@@ -137,6 +139,7 @@ export function useQueryExecution({ variables, sessionId }: UseQueryExecutionPro
         executionTime,
         queryStatus,
         errorDetail,
+        executedQuery,
         handleRunQuery,
         handleCancelQuery,
         processQuery,
