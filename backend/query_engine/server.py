@@ -456,10 +456,54 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         ctx = self._get_session_context(cmd.session_id)
         sql = self._render_query(cmd, ctx)
         try:
+            # Check for non-SELECT statements by inspecting the SQL string first
+            # Use simple string check to avoid DataFusion planning overhead/errors for DDL
+            sql_upper = sql.strip().upper()
+            is_modification_sql = (
+                sql_upper.startswith("CREATE") or
+                sql_upper.startswith("INSERT") or
+                sql_upper.startswith("UPDATE") or
+                sql_upper.startswith("DELETE") or
+                sql_upper.startswith("DROP")
+            )
+
+            if is_modification_sql:
+                logger.info(f"Skipping schema inference for modification query (SQL check): {sql[:50]}...")
+                return pa.flight.FlightInfo(
+                    pa.schema([("result", pa.string())]), 
+                    descriptor, 
+                    [pa.flight.FlightEndpoint(pa.flight.Ticket(descriptor.command), [self.location])], 
+                    -1, 
+                    -1
+                )
+
+            # Plan the query to check for DDL/DML via Logical Plan (fallback for complex cases)
+            logical_plan = ctx.sql(sql).logical_plan()
+            
+            # Check for non-SELECT statements by inspecting the logical plan string representation
+            # DataFusion's logical plan for DDL/DML usually starts with specific keywords
+            plan_str = str(logical_plan).strip().upper()
+            is_modification = (
+                "DmlStatement" in str(logical_plan) or 
+                "CreateMemoryTable" in str(logical_plan)
+            )
+
+            if is_modification:
+                logger.info(f"Skipping schema inference for modification query: {sql[:50]}...")
+                return pa.flight.FlightInfo(
+                    pa.schema([("result", pa.string())]), 
+                    descriptor, 
+                    [pa.flight.FlightEndpoint(pa.flight.Ticket(descriptor.command), [self.location])], 
+                    -1, 
+                    -1
+                )
+
             df = ctx.sql(sql)
             return pa.flight.FlightInfo(df.schema(), descriptor, [pa.flight.FlightEndpoint(pa.flight.Ticket(descriptor.command), [self.location])], -1, -1)
         except Exception as e:
             logger.error(f"Schema inference failed for session {cmd.session_id}. SQL:\n{sql}")
+            # If planning fails (e.g. table doesn't exist yet but will be created), 
+            # we might want to let it fail in do_get, but for now reporting error is safer.
             raise pa.flight.FlightServerError(f"DataFusion Error: {e}")
 
 

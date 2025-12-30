@@ -187,6 +187,21 @@ export function ResultsTableGlide({
         )
     }
 
+    if (!isLoading && queryStatus === 'completed' && rowCount === 0) {
+        return (
+            <div className="h-full flex flex-col items-center justify-center bg-background">
+                <CheckCircle2 className="h-12 w-12 text-emerald-500/50 mb-4" />
+                <p className="text-sm text-foreground font-medium">Sorgu Başarıyla Çalıştırıldı</p>
+                <p className="text-xs text-muted-foreground mt-1">İşlem tamamlandı, dönecek veri yok.</p>
+                {executionTime !== undefined && (
+                    <p className="text-[10px] text-muted-foreground mt-4 px-2 py-1 bg-muted rounded-full">
+                        Süre: {formatTime(executionTime)}
+                    </p>
+                )}
+            </div>
+        )
+    }
+
     return (
         <div className="h-full flex flex-col bg-background">
             <div className="flex items-center justify-between px-3 h-8 border-b bg-muted/30 backdrop-blur-sm sticky top-0 z-10">
