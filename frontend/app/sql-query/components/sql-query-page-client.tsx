@@ -43,11 +43,12 @@ import {
 import { SchemaPanel } from "./schema-panel"
 import { VariablesPanel } from "./variables-panel"
 import { ResultsTableGlide as ResultsTable } from "./results-table-glide"
-import { SQLEditor } from "./sql-editor"
+import { SQLEditor, SQLEditorRef } from "./sql-editor"
 import { ConnectionSelector } from "./connection-selector"
 import { CopyButton } from "./copy-button"
 import { ApiTabContent } from "./api-tab-content"
 import { SQLToolbar } from "./sql-toolbar"
+
 
 // Tipler ve Veriler
 import type { Variable, QueryFile, Schema } from "../lib/types"
@@ -84,6 +85,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     const [tableStats, setTableStats] = useState<Record<string, { lastRefreshedAt: number, durationMs: number }>>({})
     const containerRef = useRef<HTMLDivElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
+    const editorRef = useRef<SQLEditorRef>(null)
 
     const [sessionId, setSessionId] = useState<string>("");
 
@@ -268,6 +270,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
             name: queryName,
             sql: query,
             variables: cleanVariables,
+            connectionId: selectedConnectionId,
         }
 
         const yamlContent = yaml.dump(queryFile, {
@@ -678,6 +681,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                     <ApiTabContent slug={slug} variables={variables} />
                                 ) : (
                                     <SQLEditor
+                                        ref={editorRef}
                                         query={activeTab === "preview" ? processQuery(query).processedQuery : query}
                                         onQueryChange={(newQuery) => {
                                             if (activeTab === "edit") {
@@ -768,7 +772,13 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                     }
                 </div >
 
-                <Dialog open={!!errorDetail} onOpenChange={(open) => !open && setErrorDetail(null)}>
+                <Dialog open={!!errorDetail} onOpenChange={(open) => {
+                    if (!open) {
+                        setErrorDetail(null)
+                        // Wait a bit for dialog transition to start/finish so focus isn't stolen back
+                        setTimeout(() => editorRef.current?.focus(), 50)
+                    }
+                }}>
                     <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
                         <DialogHeader>
                             <DialogTitle className="text-red-600 dark:text-red-400">Hata Detayı</DialogTitle>
@@ -780,7 +790,10 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                             {errorDetail}
                         </div>
                         <DialogFooter>
-                            <Button variant="outline" onClick={() => setErrorDetail(null)}>Kapat</Button>
+                            <Button variant="outline" onClick={() => {
+                                setErrorDetail(null)
+                                setTimeout(() => editorRef.current?.focus(), 50)
+                            }}>Kapat</Button>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>

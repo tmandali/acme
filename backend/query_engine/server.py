@@ -518,6 +518,14 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                         "type": "system",
                         "connection_string": cstr
                     })
+            elif isinstance(self.external_conns, dict):
+                for name, cstr in self.external_conns.items():
+                     conn_list.append({
+                        "id": name,
+                        "name": name, 
+                        "type": "system",
+                        "connection_string": cstr
+                    })
             conn.close()
             return iter([pa.flight.Result(json.dumps(conn_list).encode())])
 

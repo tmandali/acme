@@ -187,6 +187,11 @@ const AceEditor = dynamic(
   { ssr: false }
 )
 
+// Export interfaces
+export interface SQLEditorRef {
+  focus: () => void;
+}
+
 interface SQLEditorProps {
   query: string
   onQueryChange: (query: string) => void
@@ -201,7 +206,9 @@ interface SQLEditorProps {
   readOnly?: boolean
 }
 
-export function SQLEditor({
+import { forwardRef, useImperativeHandle } from "react"
+
+export const SQLEditor = forwardRef<SQLEditorRef, SQLEditorProps>(function SQLEditor({
   query,
   onQueryChange,
   onRunQuery,
@@ -213,8 +220,17 @@ export function SQLEditor({
   onResizeStart,
   schema,
   readOnly = false,
-}: SQLEditorProps) {
+}, ref) {
   const editorInstanceRef = useRef<any>(null)
+
+  // Expose focus method via ref
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      if (editorInstanceRef.current) {
+        editorInstanceRef.current.focus()
+      }
+    }
+  }))
 
   // Update the global schema reference for the Ace completer
   useEffect(() => {
@@ -248,6 +264,12 @@ export function SQLEditor({
     onRunQuery(queryToRun)
   }, [query, onRunQuery, readOnly])
 
+
+  // handleExecute fonksiyonunu bir ref içinde tutuyoruz ki Ace Editor command'i her zaman en güncel versiyonu çalıştırsın
+  const handleExecuteRef = useRef(handleExecute)
+  useEffect(() => {
+    handleExecuteRef.current = handleExecute
+  }, [handleExecute])
 
   return (
     <>
@@ -284,8 +306,8 @@ export function SQLEditor({
           commands={[
             {
               name: 'runQuery',
-              bindKey: { win: 'Ctrl-Enter', mac: 'Command-Enter' },
-              exec: () => handleExecute()
+              bindKey: { win: 'Alt-Enter', mac: 'Option-Enter' },
+              exec: () => handleExecuteRef.current()
             }
           ]}
           style={{
@@ -319,14 +341,14 @@ export function SQLEditor({
       <div
         onMouseDown={onResizeStart}
         className={`
-          h-2 border-y bg-muted/30 cursor-row-resize flex items-center justify-center
-          hover:bg-muted/50 transition-colors
-          ${isResizing ? 'bg-muted/50' : ''}
-        `}
+              h-2 border-y bg-muted/30 cursor-row-resize flex items-center justify-center
+              hover:bg-muted/50 transition-colors
+              ${isResizing ? 'bg-muted/50' : ''}
+            `}
       >
         <GripHorizontal className="h-3 w-3 text-muted-foreground/50" />
       </div>
     </>
   )
-}
+})
 

@@ -1,0 +1,15 @@
+name: sample
+sql: |-
+  select * from sys.objects
+
+  SELECT * from users;
+
+  SELECT 
+      table_catalog, 
+      table_schema, 
+      table_name, 
+      table_type 
+  FROM information_schema.tables 
+  WHERE table_schema = 'public'
+variables: []
+connectionId: default

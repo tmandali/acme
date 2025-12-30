@@ -8,9 +8,9 @@ if __name__ == '__main__':
         base_dir.parent / "frontend/app/sql-query/query"
     ]
     
-    external_conns = [
-        "mssql://sa:Passw%40rd@localhost:1433/testDb?encrypt=true&trustServerCertificate=true"
-    ]
+    external_conns = {
+        "Local.TestDb": "mssql://sa:Passw%40rd@localhost:1433/testDb?encrypt=true&trustServerCertificate=true"
+    }
     server = StreamFlightServer(
         location="grpc://0.0.0.0:8815", 
         query_dirs=query_dirs, 

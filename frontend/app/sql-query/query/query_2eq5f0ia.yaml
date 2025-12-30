@@ -1,4 +1,4 @@
-name: Yeni sorgu
+name: reader sample
 sql: |-
   {% reader 'users', 'mssql://sa:Passw%40rd@localhost:1433/testDb' %}
       -- Kaynak veritabanında çalışacak sorgu
