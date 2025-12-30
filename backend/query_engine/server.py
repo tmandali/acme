@@ -152,7 +152,8 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                     user=unquote(u.username) if u.username else None,
                     password=unquote(u.password) if u.password else None,
                     database=u.path.lstrip('/'),
-                    port=u.port or 1433
+                    port=u.port or 1433,
+                    autocommit=True
                 )
                 cursor = conn.cursor()
                 cursor.execute(query)

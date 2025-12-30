@@ -1,8 +1,11 @@
 name: sample
-sql: |-
+sql: |
   select * from sys.objects
 
-  SELECT * from users;
+  update u set first_name='Timur ğüşiöçĞÜŞİÖÇ' from users u where id = 1
+
+  select * from users
+
 
   SELECT 
       table_catalog, 
@@ -11,5 +14,8 @@ sql: |-
       table_type 
   FROM information_schema.tables 
   WHERE table_schema = 'public'
+
+  CREATE TABLE test2(id int);
+  DROP TABLE test2;
 variables: []
-connectionId: default
+connectionId: Local.TestDb
