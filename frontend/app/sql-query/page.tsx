@@ -162,11 +162,35 @@ export default function SQLQueryDashboard() {
   }, [])
 
   // Mock connections state
-  const [connections] = useState([
-    { id: 1, name: "Production ERP", type: "PostgreSQL" },
-    { id: 2, name: "Analytics DB", type: "BigQuery" },
-    { id: 3, name: "Customer Portal", type: "MySQL" },
-  ])
+  // Connections state
+  const [connections, setConnections] = useState<{ id: string | number; name: string; type: string }[]>([])
+
+  // Fetch connections from server
+  useEffect(() => {
+    const fetchConnections = async () => {
+      try {
+        const res = await fetch("/api/flight/action", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ actionType: "list_connections" })
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (Array.isArray(data)) {
+            const mapped = data.map((c: any) => ({
+              id: c.id,
+              name: c.name,
+              type: c.type
+            }))
+            setConnections(mapped)
+          }
+        }
+      } catch (e) {
+        console.error("Failed to fetch connections", e)
+      }
+    }
+    fetchConnections()
+  }, [])
 
   // Simple filtering logic
   const filteredQueries = queries.filter(q =>

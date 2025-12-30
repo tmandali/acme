@@ -1,12 +1,16 @@
 import sqlite3
 import pathlib
 import logging
+import threading
 import pyarrow as pa
 from jinja2 import nodes
 from jinja2.ext import Extension
 from urllib.parse import urlparse, unquote
 
 logger = logging.getLogger("StreamFlightServer")
+
+# Thread-local storage to prevent race conditions during concurrent renders
+context_storage = threading.local()
 
 class ReaderExtension(Extension):
     """
@@ -52,9 +56,16 @@ class ReaderExtension(Extension):
         if not inner_sql:
             return "-- Error: Reader block is empty"
 
-        ctx = self.environment.globals.get("datafusion_ctx")
+        # Use thread-local storage instead of global environment
+        ctx = getattr(context_storage, "datafusion_ctx", None)
+        conn_map = getattr(context_storage, "connection_map", {})
+        
         if not ctx:
             return "-- Error: DataFusion context not found"
+
+        # Resolve connection name if it's not a direct connection string
+        if "://" not in conn_str and conn_str in conn_map:
+            conn_str = conn_map[conn_str]
 
         try:
             if conn_str.startswith("mssql://"):

@@ -22,7 +22,7 @@ export function useQueryExecution({ variables, sessionId }: UseQueryExecutionPro
         return processJinjaTemplate(sqlQuery, variables)
     }, [variables])
 
-    const handleRunQuery = useCallback(async (queryToRun: string) => {
+    const handleRunQuery = useCallback(async (queryToRun: string, connectionId?: string | number) => {
         if (isLoading) return
 
         const { missingVariables } = processQuery(queryToRun)
@@ -51,13 +51,15 @@ export function useQueryExecution({ variables, sessionId }: UseQueryExecutionPro
 
         try {
             const startTime = Date.now()
+            console.log("Sending query:", queryToRun, "Connection:", connectionId)
+
             const response = await fetch("/api/flight/execute", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                     "x-session-id": sessionId
                 },
-                body: JSON.stringify({ query: queryToRun, criteria }),
+                body: JSON.stringify({ query: queryToRun, criteria, connectionId }),
                 signal: controller.signal
             });
 

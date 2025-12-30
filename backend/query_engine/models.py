@@ -9,6 +9,7 @@ class QueryCommand:
     criteria: Dict[str, Any] = field(default_factory=dict)
     query: Optional[str] = None
     session_id: str = "default"
+    connection_id: Optional[str] = None
     
     @classmethod
     def from_json(cls, json_str: str) -> 'QueryCommand':
@@ -17,7 +18,8 @@ class QueryCommand:
             template=data.get("template", ""),
             criteria=data.get("criteria", {}),
             query=data.get("query"),
-            session_id=data.get("session_id", "default")
+            session_id=data.get("session_id", "default"),
+            connection_id=data.get("connection_id")
         )
 
 @dataclass

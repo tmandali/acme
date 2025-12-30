@@ -99,6 +99,37 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
 
     const [dbSchema, setDbSchema] = useState<Schema>({ name: "Veritabanı Bağlanıyor...", models: [], tables: [] })
     const queryStatusRef = useRef<"completed" | "cancelled" | null>(null)
+    const [connections, setConnections] = useState(sampleConnections)
+
+    // Fetch connections from server
+    useEffect(() => {
+        const fetchConnections = async () => {
+            try {
+                const res = await fetch("/api/flight/action", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ actionType: "list_connections" })
+                })
+                if (res.ok) {
+                    const data = await res.json()
+                    if (Array.isArray(data)) {
+                        const mapped = data.map((c: any) => ({
+                            id: c.id,
+                            name: c.name,
+                            type: c.type
+                        }))
+                        setConnections([
+                            { id: "default", name: "DataFusion (In-Memory)", type: "Engine" },
+                            ...mapped
+                        ])
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to fetch connections", e)
+            }
+        }
+        fetchConnections()
+    }, [])
 
     // Schema Fetching
     const refreshSchema = useCallback(async () => {
@@ -214,7 +245,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
 
     const handleRunQueryWrapper = useCallback(async (queryToRun?: string) => {
         const targetQuery = typeof queryToRun === 'string' ? queryToRun : query
-        const result = await executeQuery(targetQuery)
+        const result = await executeQuery(targetQuery, selectedConnectionId)
 
         if (result?.missingRequired) {
             setVariablesPanelOpen(true)
@@ -223,7 +254,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
             // Refresh schema after query, as reader tags might have added new tables
             refreshSchema()
         }
-    }, [query, executeQuery, refreshSchema])
+    }, [query, executeQuery, refreshSchema, selectedConnectionId])
 
 
     // YAML dosyasına kaydet
@@ -638,7 +669,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                     setSelectedConnectionId={setSelectedConnectionId}
                                     isConnOpen={isConnOpen}
                                     setIsConnOpen={setIsConnOpen}
-                                    connections={sampleConnections}
+                                    connections={connections}
                                     mounted={mounted}
                                 />
 

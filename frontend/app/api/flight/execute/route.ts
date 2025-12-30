@@ -21,7 +21,7 @@ const flightProto = grpcObj.arrow.flight.protocol;
 export async function POST(request: NextRequest) {
     const sessionId = request.headers.get("x-session-id") || "default";
     const body = await request.json();
-    const { query, criteria } = body;
+    const { query, criteria, connectionId } = body;
     // const sessionId = request.headers.get("x-session-id") || "default"; // This line is replaced
 
     // Use environment variable for Flight server location
@@ -31,12 +31,12 @@ export async function POST(request: NextRequest) {
     // Prepare Descriptor (CMD type)
     const descriptor = {
         type: "CMD",
-        cmd: Buffer.from(JSON.stringify({ query, criteria, session_id: sessionId })),
+        cmd: Buffer.from(JSON.stringify({ query, criteria, session_id: sessionId, connection_id: connectionId })),
     };
 
     return new Promise((resolve) => {
         // 1. Get Flight Info
-        client.GetFlightInfo(descriptor, (err: any, info: any) => {
+        client.GetFlightInfo(descriptor, async (err: any, info: any) => {
             if (err) {
                 console.error("GetFlightInfo Error:", err);
                 resolve(NextResponse.json({ error: err.message }, { status: 500 }));
@@ -52,63 +52,110 @@ export async function POST(request: NextRequest) {
             const ticket = info.endpoint[0].ticket;
             const call = client.DoGet(ticket);
 
-            const stream = new ReadableStream({
-                start(controller) {
-                    call.on('data', (flightData: any) => {
-                        const header = flightData.data_header;
-                        const body = flightData.data_body;
+            // We wrap the stream start in a promise to control the initial response type (200 Stream vs 500 JSON)
+            // This prevents ERR_EMPTY_RESPONSE when the backend errors immediately.
+            const streamPromise = new Promise<NextResponse>((resolveStream, rejectStream) => {
+                let streamStarted = false;
+                let controllerRef: ReadableStreamDefaultController | null = null;
+                let pendingData: any[] = [];
 
-                        // 1. Eğer pakette başlık (metadata) varsa, yeni bir IPC mesajı başlat
-                        if (header && header.length > 0) {
-                            // Continuation token (0xFFFFFFFF)
-                            const continuationBuf = Buffer.alloc(4);
-                            continuationBuf.writeUInt32LE(0xFFFFFFFF, 0);
-
-                            // Header length (4 bytes)
-                            const headerLenBuf = Buffer.alloc(4);
-                            headerLenBuf.writeInt32LE(header.length, 0);
-
-                            controller.enqueue(continuationBuf);
-                            controller.enqueue(headerLenBuf);
-                            controller.enqueue(header);
+                const readable = new ReadableStream({
+                    start(controller) {
+                        controllerRef = controller;
+                        // Flush any pending data that arrived while we were waiting for the stream to initialize
+                        if (pendingData.length > 0) {
+                            for (const d of pendingData) {
+                                controller.enqueue(d);
+                            }
+                            pendingData = [];
                         }
+                    },
+                    cancel() {
+                        call.cancel();
+                    }
+                });
 
-                        // 2. Eğer pakette gövde (data) varsa, mevcut mesajın devamı olarak ekle
-                        if (body && body.length > 0) {
-                            controller.enqueue(body);
-                        }
-                    });
+                call.on('data', (flightData: any) => {
+                    const header = flightData.data_header;
+                    const body = flightData.data_body;
 
-                    call.on('end', () => {
-                        // IPC End of Stream marker (0x00000000)
-                        // Bazı okuyucular continuation token bekler
+                    const chunks: Buffer[] = [];
+
+                    if (header && header.length > 0) {
                         const continuationBuf = Buffer.alloc(4);
                         continuationBuf.writeUInt32LE(0xFFFFFFFF, 0);
-                        const endBuf = Buffer.alloc(4);
-                        endBuf.writeInt32LE(0, 0);
+                        const headerLenBuf = Buffer.alloc(4);
+                        headerLenBuf.writeInt32LE(header.length, 0);
+                        chunks.push(continuationBuf, headerLenBuf, header);
+                    }
 
-                        controller.enqueue(continuationBuf);
-                        controller.enqueue(endBuf);
-                        controller.close();
-                    });
+                    if (body && body.length > 0) {
+                        chunks.push(body);
+                    }
 
-                    call.on('error', (err: any) => {
-                        console.error("DoGet Stream Error:", err);
-                        controller.error(err);
-                    });
-                },
-                cancel() {
-                    call.cancel();
-                }
+                    if (chunks.length > 0) {
+                        if (!streamStarted) {
+                            streamStarted = true;
+                            // Resolve the main promise with the success stream response
+                            resolveStream(new NextResponse(readable, {
+                                headers: {
+                                    'Content-Type': 'application/vnd.apache.arrow.stream',
+                                    'Cache-Control': 'no-cache',
+                                    'Connection': 'keep-alive',
+                                },
+                            }));
+                        }
+
+                        // Push to controller OR buffer if controller isn't ready
+                        chunks.forEach(chunk => {
+                            if (controllerRef) {
+                                controllerRef.enqueue(chunk);
+                            } else {
+                                pendingData.push(chunk);
+                            }
+                        });
+                    }
+                });
+
+                call.on('end', () => {
+                    if (!streamStarted) {
+                        // Empty stream? Resolve with empty success.
+                        streamStarted = true;
+                        resolveStream(new NextResponse(readable, {
+                            headers: {
+                                'Content-Type': 'application/vnd.apache.arrow.stream',
+                            },
+                        }));
+                    }
+
+                    const continuationBuf = Buffer.alloc(4);
+                    continuationBuf.writeUInt32LE(0xFFFFFFFF, 0);
+                    const endBuf = Buffer.alloc(4);
+                    endBuf.writeInt32LE(0, 0);
+
+                    if (controllerRef) {
+                        controllerRef.enqueue(continuationBuf);
+                        controllerRef.enqueue(endBuf);
+                        controllerRef.close();
+                    }
+                });
+
+                call.on('error', (err: any) => {
+                    console.error("DoGet Stream Error:", err);
+                    if (!streamStarted) {
+                        streamStarted = true;
+                        // Backend error on startup -> Return JSON Error Response
+                        resolveStream(NextResponse.json({ error: err.message || "Query execution failed" }, { status: 500 }));
+                    } else {
+                        // Stream already started sending 200 OK, can only error server-side
+                        if (controllerRef) {
+                            try { controllerRef.error(err); } catch { }
+                        }
+                    }
+                });
             });
 
-            resolve(new NextResponse(stream, {
-                headers: {
-                    'Content-Type': 'application/vnd.apache.arrow.stream',
-                    'Cache-Control': 'no-cache',
-                    'Connection': 'keep-alive',
-                },
-            }));
+            resolve(await streamPromise);
         });
     });
 }
