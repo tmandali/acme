@@ -52,6 +52,8 @@ class ReaderExtension(Extension):
             return "-- Error: Reader tag requires table_name and connection_string"
         
         name, conn_str = args[0], args[1]
+        use_parquet = args[2] if len(args) > 2 else False
+        
         inner_sql = caller().strip()
         if not inner_sql:
             return "-- Error: Reader block is empty"
@@ -80,7 +82,8 @@ class ReaderExtension(Extension):
             
             col_names = [col[0] for col in cursor.description]
             normalized_field_names = [n.lower() for n in col_names]
-            
+
+            # Deregister existing table if present
             try:
                 ctx.deregister_table(name)
             except:
@@ -88,7 +91,7 @@ class ReaderExtension(Extension):
 
             batches = []
             while True:
-                rows = cursor.fetchmany(1000)
+                rows = cursor.fetchmany(10000) # Increased batch size for efficiency
                 if not rows:
                     break
                 
@@ -101,19 +104,41 @@ class ReaderExtension(Extension):
             
             conn.close()
 
-            if batches:
-                ctx.register_record_batches(name, [batches])
-                logger.info(f"Dynamically registered table '{name}' with {len(batches)} batches from {conn_str[:15]}...")
-            else:
+            if not batches:
+                # Handle empty result
                 fields = [pa.field(n, pa.string()) for n in normalized_field_names]
                 schema = pa.schema(fields)
                 empty_batch = pa.RecordBatch.from_arrays(
                     [pa.array([], type=pa.string()) for _ in normalized_field_names],
                     schema=schema
                 )
-                ctx.register_record_batches(name, [[empty_batch]])
-            
-            return "" 
+                batches = [empty_batch]
+
+            if use_parquet:
+                import tempfile
+                import os
+                import pyarrow.parquet as pq
+                
+                # Create a temporary file
+                fd, tmp_path = tempfile.mkstemp(suffix=".parquet", prefix=f"{name}_")
+                os.close(fd)
+                
+                # Write batches to parquet
+                table = pa.Table.from_batches(batches)
+                pq.write_table(table, tmp_path)
+                
+                # Register parquet file
+                ctx.register_parquet(name, tmp_path)
+                
+                msg = f"Cached '{name}' to disk: {tmp_path}"
+                logger.info(msg)
+                return f"-- {msg}" # Return as comment so it might be visible if we parse comments
+            else:
+                # Register in-memory
+                ctx.register_record_batches(name, [batches])
+                logger.info(f"Dynamically registered table '{name}' in-memory with {len(batches)} batches")
+                return "" 
+                
         except Exception as e:
             err_msg = f"Error in reader tag: {str(e)}"
             logger.error(err_msg, exc_info=True)
@@ -135,7 +160,8 @@ class ReaderExtension(Extension):
             password=password,
             database=database,
             port=u.port or 1433,
-            timeout=10
+            timeout=10,
+            autocommit=True
         )
 
     def _resolve_db_path(self, conn_str):

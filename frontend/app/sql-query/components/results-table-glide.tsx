@@ -211,12 +211,40 @@ export function ResultsTableGlide({
         )
     }
 
-    if (!isLoading && queryStatus === 'completed' && rowCount === 0) {
+    // Check for single-row message (e.g. from Reader extension with Parquet path)
+    const isSingleRowMessage = !isLoading && queryStatus === 'completed' && rowCount === 1 && columns.length === 1 && columns[0].title === "Result";
+
+    if ((!isLoading && queryStatus === 'completed' && rowCount === 0) || isSingleRowMessage) {
+        const isReaderQuery = executedQuery && /\{%\s*reader/i.test(executedQuery);
+
+        let successTitle = "Sorgu Başarıyla Çalıştırıldı";
+        let successDesc = "İşlem tamamlandı, dönecek veri yok.";
+
+        if (isSingleRowMessage) {
+            // Extract message from the single cell
+            // Since getting cell content is complex with virtualizer, we'll try to access data directly if possible or simplify
+            // For Arrow:
+            if (results.length > 0 && 'numRows' in results[0]) {
+                const batch = results[0] as RecordBatch;
+                const val = batch.getChildAt(0)?.get(0);
+                successDesc = String(val);
+            } else {
+                const row = (results as any[])[0];
+                successDesc = row?.Result || row?.result || String(row);
+            }
+            if (successDesc.includes("Cached")) successTitle = "Veri Önbelleğe Alındı";
+        } else if (isReaderQuery) {
+            const tableNameMatch = executedQuery?.match(/\{%\s*reader\s*['"]([^'"]+)['"]/i);
+            const tableName = tableNameMatch ? tableNameMatch[1] : "Tablo";
+            successTitle = `'${tableName}' Hafızaya Alındı`;
+            successDesc = `Sorgulamak için 'SELECT * FROM ${tableName}' yazın.`;
+        }
+
         return (
             <div className="h-full flex flex-col items-center justify-center bg-background p-6">
                 <CheckCircle2 className="h-12 w-12 text-emerald-500/50 mb-4" />
-                <p className="text-sm text-foreground font-medium">Sorgu Başarıyla Çalıştırıldı</p>
-                <p className="text-xs text-muted-foreground mt-1 mb-4">İşlem tamamlandı, dönecek veri yok.</p>
+                <p className="text-sm text-foreground font-medium">{successTitle}</p>
+                <p className="text-xs text-muted-foreground mt-1 mb-4">{successDesc}</p>
 
                 {executedQuery && (
                     <div className="max-w-2xl w-full bg-muted/30 border rounded-md p-3 mb-4">

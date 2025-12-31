@@ -104,6 +104,34 @@ class StreamFlightServer(pa.flight.FlightServerBase):
 
             ctx = self._get_session_context(cmd.session_id)
             sql = self._render_query(cmd, ctx)
+            
+            # Check if SQL is effectively empty (only comments or whitespace)
+            clean_lines = []
+            comment_lines = []
+            for line in sql.splitlines():
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if stripped.startswith("--"):
+                    comment_lines.append(stripped[2:].strip())
+                else:
+                    clean_lines.append(line)
+            
+            is_effectively_empty = len(clean_lines) == 0
+
+            if is_effectively_empty:
+                 # Construct message from comments or default
+                 msg = "Tablo(lar) başarıyla hafızaya alındı."
+                 if comment_lines:
+                     msg = "\n".join(comment_lines)
+
+                 # Return single row with message
+                 batch = pa.RecordBatch.from_arrays(
+                     [pa.array([msg])],
+                     names=["Result"]
+                 )
+                 return pa.flight.RecordBatchStream(pa.RecordBatchReader.from_batches(batch.schema, [batch]))
+
             df = ctx.sql(sql)
             
             # Low-memory streaming using a generator
@@ -478,6 +506,29 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         
         ctx = self._get_session_context(cmd.session_id)
         sql = self._render_query(cmd, ctx)
+        
+        if not sql or not sql.strip():
+            # User likely only used {% reader %} or {% macro %} blocks without a query
+            logger.info("Empty SQL after rendering. Returning informative placeholder.")
+            return pa.flight.FlightInfo(
+                 pa.schema([("Result", pa.string())]), 
+                 descriptor, 
+                 [pa.flight.FlightEndpoint(pa.flight.Ticket(descriptor.command), [self.location])], 
+                 -1, 
+                 -1
+            )
+            
+        # Check for comment-only SQL
+        clean = [l for l in sql.splitlines() if l.strip() and not l.strip().startswith("--")]
+        if not clean:
+             logger.info("Comment-only SQL. Returning informative placeholder.")
+             return pa.flight.FlightInfo(
+                 pa.schema([("Result", pa.string())]), 
+                 descriptor, 
+                 [pa.flight.FlightEndpoint(pa.flight.Ticket(descriptor.command), [self.location])], 
+                 -1, 
+                 -1
+            )
         try:
             # Check for non-SELECT statements by inspecting the SQL string first
             # Use simple string check to avoid DataFusion planning overhead/errors for DDL
