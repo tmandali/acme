@@ -93,35 +93,31 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         try:
             cmd = QueryCommand.from_json(ticket.ticket.decode())
             
-            # Direct connection execution
-            if cmd.connection_id and cmd.connection_id != "default":
-                target_conn = self.connections.get(str(cmd.connection_id))
-                if target_conn:
-                    logger.info(f"Executing direct query on connection {cmd.connection_id}")
-                    return self._execute_on_external(target_conn, cmd.query)
-                else:
-                    logger.warning(f"Connection ID {cmd.connection_id} not found. Falling back to default.")
-
+            # Always Initialize Session Context First
+            # This is required for Jinja rendering (ReaderExtension needs ctx)
             ctx = self._get_session_context(cmd.session_id)
+            
+            # Render the query (resolves Jinja tags, variables, and potential file templates)
             sql = self._render_query(cmd, ctx)
             
             # Check if SQL is effectively empty (only comments or whitespace)
             clean_lines = []
             comment_lines = []
-            for line in sql.splitlines():
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                if stripped.startswith("--"):
-                    comment_lines.append(stripped[2:].strip())
-                else:
-                    clean_lines.append(line)
+            if sql:
+                for line in sql.splitlines():
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    if stripped.startswith("--"):
+                        comment_lines.append(stripped[2:].strip())
+                    else:
+                        clean_lines.append(line)
             
             is_effectively_empty = len(clean_lines) == 0
 
             if is_effectively_empty:
                  # Construct message from comments or default
-                 msg = "Tablo(lar) başarıyla hafızaya alındı."
+                 msg = "İşlem başarıyla tamamlandı."
                  if comment_lines:
                      msg = "\n".join(comment_lines)
 
@@ -130,7 +126,17 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                      [pa.array([msg])],
                      names=["Result"]
                  )
+                 # Note: Provide a schema even for empty results to avoid client confusion
                  return pa.flight.RecordBatchStream(pa.RecordBatchReader.from_batches(batch.schema, [batch]))
+
+            # Direct connection execution (Post-Render)
+            if cmd.connection_id and cmd.connection_id != "default":
+                target_conn = self.connections.get(str(cmd.connection_id))
+                if target_conn:
+                    logger.info(f"Executing rendered query on connection {cmd.connection_id}")
+                    return self._execute_on_external(target_conn, sql)
+                else:
+                    logger.warning(f"Connection ID {cmd.connection_id} not found. Falling back to default.")
 
             df = ctx.sql(sql)
             

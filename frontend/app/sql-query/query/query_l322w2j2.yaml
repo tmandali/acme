@@ -1,5 +1,5 @@
 name: sample
-sql: |
+sql: |-
   select * from sys.objects
 
   update u set first_name='Timur ğüşiöçĞÜŞİÖÇ' from users u where id = 1
@@ -17,5 +17,9 @@ sql: |
 
   CREATE TABLE test2(id int);
   DROP TABLE test2;
+
+  {%reader% 'test','Local.TestDb'}
+  select * from users
+  {%endreader%}
 variables: []
 connectionId: Local.TestDb

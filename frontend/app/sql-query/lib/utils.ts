@@ -149,11 +149,20 @@ class ReaderExtension {
   tags = ['reader'];
   parse(parser: any, nodes: any) {
     const tok = parser.nextToken();
-    const args = parser.parseSignature(null, true);
+
+    // Argümanları parse etmek yerine, blok bitimine kadar olan her şeyi tüket.
+    // Bu, frontend'in 'string' veya 'int' dışındaki karmaşık argümanlarda (örn. pathler) 
+    // hata vermesini engeller.
+    let peek = parser.peekToken();
+    while (peek && peek.type !== 'block_end') {
+      parser.nextToken();
+      peek = parser.peekToken();
+    }
+
     parser.advanceAfterBlockEnd(tok.value);
     const body = parser.parseUntilBlocks('endreader');
     parser.advanceAfterBlockEnd();
-    return new nodes.CallExtension(this, 'run', args, [body]);
+    return new nodes.CallExtension(this, 'run', null, [body]);
   }
   run(_context: any) {
     return ""; // Frontend'de içeriği gösterme (Backend'de işlenecek)
