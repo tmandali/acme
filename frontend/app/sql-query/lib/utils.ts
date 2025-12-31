@@ -39,7 +39,7 @@ export const columnTypeConfig: Record<string, { icon: React.ElementType; color: 
   Date: { icon: Calendar, color: "text-emerald-500" },
   Decimal: { icon: Hash, color: "text-orange-500" },
   JSON: { icon: FileJson, color: "text-cyan-500" },
-  // DataFusion / Arrow specific types
+  // Arrow specific types
   Utf8: { icon: Type, color: "text-blue-500" },
   Int32: { icon: Hash, color: "text-amber-500" },
   Int64: { icon: Key, color: "text-amber-500" },

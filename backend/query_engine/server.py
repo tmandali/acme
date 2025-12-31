@@ -163,12 +163,15 @@ class StreamFlightServer(pa.flight.FlightServerBase):
             msg = str(e)
             
             # Remove DuckDB specific prefixes if any (DuckDB usually gives clean errors but just in case)
-            if "Binder Error: " in msg:
-                msg = msg.replace("Binder Error: ", "")
-            if "Catalog Error: " in msg:
-                msg = msg.replace("Catalog Error: ", "")
-            if "Parser Error: " in msg:
-                msg = msg.replace("Parser Error: ", "")
+            duckdb_prefixes = [
+                "Binder Error: ", "Catalog Error: ", "Parser Error: ",
+                "Constraint Error: ", "Conversion Error: ", "Data Error: ",
+                "Transaction Error: ", "IO Error: ", "Connection Error: ",
+                "Internal Error: ", "Standard Error: ", "Sequence Error: "
+            ]
+            for prefix in duckdb_prefixes:
+                if prefix in msg:
+                    msg = msg.replace(prefix, "")
             
             # Remove Python traceback details if present (often starts with Detail: Python exception:)
             if "Detail: Python exception" in msg:
@@ -511,7 +514,6 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         if cmd.connection_id and cmd.connection_id != "default":
             # Just return a placeholder FlightInfo to allow execution to proceed to do_get.
             # Real schema discovery would happen in do_get stream or we could try to implement it here.
-            # But avoiding 'DataFusion Error' is the priority.
             if self.connections.get(str(cmd.connection_id)):
                 return pa.flight.FlightInfo(
                     pa.schema([]), # Empty schema/unknown
@@ -595,7 +597,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
             logger.error(f"Schema inference failed for session {cmd.session_id}. SQL:\n{sql}")
             # If planning fails (e.g. table doesn't exist yet but will be created), 
             # we might want to let it fail in do_get, but for now reporting error is safer.
-            raise pa.flight.FlightServerError(f"DataFusion Error: {e}")
+            raise pa.flight.FlightServerError(f"Error: {e}")
 
 
 
@@ -648,7 +650,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                     })
                 
                 schema = {
-                    "name": "DuckDB Session",
+                    "name": f"Session : {session_id}",
                     "models": [], # Models are not yet supported/implemented
                     "tables": tables_data
                 }
@@ -709,8 +711,8 @@ class StreamFlightServer(pa.flight.FlightServerBase):
             body = json.loads(action.body.to_pybytes().decode())
             session_id = body.get("session_id", "default")
             ctx = self._get_session_context(session_id)
-            self._register_tables_in_datafusion(ctx)
-            self._register_external_conns(ctx)
+            #self._register_tables_in_datafusion(ctx)
+            #self._register_external_conns(ctx)
             return iter([pa.flight.Result(json.dumps({"success": True}).encode())])
 
         elif action.type == "list_connections":

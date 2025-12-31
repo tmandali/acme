@@ -121,7 +121,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                             type: c.type
                         }))
                         setConnections([
-                            { id: "default", name: "DataFusion (In-Memory)", type: "Engine" },
+                            { id: "default", name: "Memory", type: "Engine" },
                             ...mapped
                         ])
                     }
@@ -265,7 +265,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
 
         // Clear UI states immediately to prevent stale data "lag"
         // This solves the perception that "cleaning takes time" or "old data comes from memory"
-        setDbSchema({ name: "DataFusion Schema", models: [], tables: [] });
+        setDbSchema({ name: "Memory Schema", models: [], tables: [] });
         setResults([]);
         setRefreshingTables(new Set());
         setTableStats({});
