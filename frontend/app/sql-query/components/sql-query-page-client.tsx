@@ -89,6 +89,16 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
 
     const [sessionId, setSessionId] = useState<string>("");
 
+    // Sync state with initialData props when navigating between queries
+    useEffect(() => {
+        if (initialData) {
+            setQuery(initialData.sql || "")
+            setQueryName(initialData.name || "Yeni sorgu")
+            setVariables(initialData.variables || [])
+            setSelectedConnectionId(initialData.connectionId || "default")
+        }
+    }, [initialData])
+
     useEffect(() => {
         setMounted(true);
         let id = localStorage.getItem("acme_session_id");

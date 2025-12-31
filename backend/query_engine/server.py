@@ -33,33 +33,41 @@ class StreamFlightServer(pa.flight.FlightServerBase):
             pathlib.Path("../app/sql-query/query")
         ]
         
-        # Initialize connections map
-        # Initialize connections map
+        # 3. Initialize Shared Database (SQLite) and Metadata
+        self._init_metadata_db()
+        self._sync_external_connections()
+        
+        # Initialize internal structures
         self.connections = {}
         self.connection_map = {}
-        if isinstance(self.external_conns, list):
-            for i, conn in enumerate(self.external_conns):
-                # Use a prefix to avoid collision with database IDs
-                cid = f"sys_{i+1}"
-                name = f"System Connection {i+1}"
-                self.connections[cid] = conn
-                self.connection_map[name] = conn
-        elif isinstance(self.external_conns, dict):
-            self.connections = self.external_conns
-            # Assume keys are names in dict mode, but complex to map ID. 
-            # Simplified: just use dict as connections map too if needed.
-            self.connection_map = self.external_conns.copy()
-
+        
         # 1. Initialize Sessions
         self._sessions = {}
         self._max_sessions = 100
         
         # 2. Setup Template Engine (Jinja)
         self._setup_jinja()
-        
-        # 3. Initialize Shared Database (SQLite) and Metadata
-        self._init_metadata_db()
+
         self._load_connections()
+
+    def _sync_external_connections(self):
+        """Seeds external connections into the SQLite DB if they don't exist."""
+        if not isinstance(self.external_conns, dict):
+            return
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        for name, cstr in self.external_conns.items():
+            # Attempt to insert. If name exists, it will fail silently due to OR IGNORE (name is UNIQUE)
+            # We treat external_conns as 'System' type initial seeds
+            cursor.execute(
+                "INSERT OR IGNORE INTO _meta_connections (name, type, connection_string) VALUES (?, ?, ?)",
+                (name, "system", cstr)
+            )
+            
+        conn.commit()
+        conn.close()
 
     def _init_metadata_db(self):
         """Initializes metadata tables in the SQLite database."""
@@ -728,23 +736,6 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                     "connection_string": cstr # In production, mask this!
                 })
             
-            # Also add external_conns from init (marked as system/config)
-            if isinstance(self.external_conns, list):
-                for i, cstr in enumerate(self.external_conns):
-                     conn_list.append({
-                        "id": f"sys_{i+1}", 
-                        "name": f"System Connection {i+1}",
-                        "type": "system",
-                        "connection_string": cstr
-                    })
-            elif isinstance(self.external_conns, dict):
-                for name, cstr in self.external_conns.items():
-                     conn_list.append({
-                        "id": name,
-                        "name": name, 
-                        "type": "system",
-                        "connection_string": cstr
-                    })
             conn.close()
             return iter([pa.flight.Result(json.dumps(conn_list).encode())])
 
