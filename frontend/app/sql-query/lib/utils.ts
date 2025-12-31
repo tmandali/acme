@@ -154,12 +154,19 @@ class ReaderExtension {
     // Bu, frontend'in 'string' veya 'int' dışındaki karmaşık argümanlarda (örn. pathler) 
     // hata vermesini engeller.
     let peek = parser.peekToken();
-    while (peek && peek.type !== 'block_end') {
+    // NOT: Nunjucks versiyonuna göre 'block-end' veya 'block_end' olabilir.
+    while (peek && peek.type !== 'block_end' && peek.type !== 'block-end') {
       parser.nextToken();
       peek = parser.peekToken();
     }
 
-    parser.advanceAfterBlockEnd(tok.value);
+    // Blok bitişini (%}) manual olarak tüket
+    if (peek && (peek.type === 'block_end' || peek.type === 'block-end')) {
+      parser.nextToken();
+    }
+
+    // parser.advanceAfterBlockEnd(tok.value) çağrısını atlıyoruz çünkü manual tükettik.
+
     const body = parser.parseUntilBlocks('endreader');
     parser.advanceAfterBlockEnd();
     return new nodes.CallExtension(this, 'run', null, [body]);
