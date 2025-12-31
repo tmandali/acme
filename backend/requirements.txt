@@ -1,5 +1,5 @@
 pyyaml
-datafusion
+duckdb
 pyarrow
 jinja2
 faker

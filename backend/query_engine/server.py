@@ -3,7 +3,7 @@ import sqlite3
 import pathlib
 import yaml
 import logging
-import datafusion
+import duckdb
 import pyarrow as pa
 import pyarrow.flight
 from datetime import datetime
@@ -138,29 +138,37 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                 else:
                     logger.warning(f"Connection ID {cmd.connection_id} not found. Falling back to default.")
 
-            df = ctx.sql(sql)
+            # DuckDB execution
+            # Connect execution (Post-Render) happens here
             
-            # Low-memory streaming using a generator
-            stream = df.execute_stream()
-            def batch_gen():
-                for b in stream:
-                    yield b.to_pyarrow()
+            # Execute and get relation
+            rel = ctx.sql(sql)
+
+            if rel is None:
+                # DDL executed successfully but returned no relation
+                batch = pa.RecordBatch.from_arrays(
+                     [pa.array(["İşlem başarıyla tamamlandı."])],
+                     names=["Result"]
+                 )
+                return pa.flight.RecordBatchStream(pa.RecordBatchReader.from_batches(batch.schema, [batch]))
             
-            return pa.flight.RecordBatchStream(pa.RecordBatchReader.from_batches(df.schema(), batch_gen()))
+            # Stream result as Arrow
+            # fetch_arrow_reader returns a pyarrow.RecordBatchReader
+            reader = rel.fetch_arrow_reader(batch_size=1024)
+            
+            return pa.flight.RecordBatchStream(reader)
         except Exception as e:
             logger.exception("Query execution failed")
             # Clean up error message for display
             msg = str(e)
             
-            # Remove DataFusion specific prefixes
-            if "DataFusion error: Execution" in msg:
-                # Extract the inner message: Execution("...")
-                import re
-                match = re.search(r'Execution\("(.*?)"\)', msg)
-                if match:
-                    msg = match.group(1)
-                else:
-                    msg = msg.split("Execution(")[-1].rstrip(")")
+            # Remove DuckDB specific prefixes if any (DuckDB usually gives clean errors but just in case)
+            if "Binder Error: " in msg:
+                msg = msg.replace("Binder Error: ", "")
+            if "Catalog Error: " in msg:
+                msg = msg.replace("Catalog Error: ", "")
+            if "Parser Error: " in msg:
+                msg = msg.replace("Parser Error: ", "")
             
             # Remove Python traceback details if present (often starts with Detail: Python exception:)
             if "Detail: Python exception" in msg:
@@ -269,7 +277,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         # 3. Initialize Shared Database (SQLite)
         #self._init_db()
 
-    def _get_session_context(self, session_id: str) -> datafusion.SessionContext:
+    def _get_session_context(self, session_id: str) -> duckdb.DuckDBPyConnection:
         """Returns existing or creates a new isolated SessionContext for the user."""
         if session_id in self._sessions:
             return self._sessions[session_id]
@@ -280,8 +288,13 @@ class StreamFlightServer(pa.flight.FlightServerBase):
             del self._sessions[oldest]
 
         logger.info(f"Creating new session context for: {session_id}")
-        config = datafusion.SessionConfig().with_information_schema(True)
-        ctx = datafusion.SessionContext(config)
+        # Create an in-memory DuckDB connection
+        # We can also use a persistent file if needed, but in-memory is good for session isolation
+        ctx = duckdb.connect(":memory:")
+        
+        # Install and load generic extensions if needed (e.g. httpfs, spatial)
+        # ctx.install_extension("httpfs")
+        # ctx.load_extension("httpfs")
         
         # Register default tables for this new session
         #self._register_tables_in_datafusion(ctx)
@@ -351,7 +364,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
     #     conn.close()
     #     conn.close()
 
-    # def _register_tables_in_datafusion(self, ctx: datafusion.SessionContext, target_table_name: str = None):
+    # def _register_tables_in_datafusion(self, ctx: duckdb.DuckDBPyConnection, target_table_name: str = None):
     #     """Pre-registers SQLite tables in a specific context for visibility."""
     #     logger.info(f"Registering SQLite tables in session...")
     #     conn = sqlite3.connect(self.db_path)
@@ -369,19 +382,17 @@ class StreamFlightServer(pa.flight.FlightServerBase):
     #             col_names = [col[0] for col in cursor.description]
     #             normalized_names = [n.lower() for n in col_names]
                 
-    #             batches = []
-    #             while True:
-    #                 rows = cursor.fetchmany(1000)
-    #                 if not rows: break
-                    
+    #             # Create arrow table from all data (DuckDB handles arrow efficiently)
+    #             # For very large tables, we might want to use DuckDB's sqlite scanner instead if installed
+    #             # But for now, read into Arrow
+    #             rows = cursor.fetchall()
+    #             if rows:
     #                 cols = list(zip(*rows))
-    #                 batches.append(pa.RecordBatch.from_arrays(
+    #                 arrow_table = pa.Table.from_arrays(
     #                     [pa.array(c) for c in cols],
     #                     names=normalized_names
-    #                 ))
-                
-    #             if batches:
-    #                 ctx.register_record_batches(table_name.lower(), [batches])
+    #                 )
+    #                 ctx.register(table_name.lower(), arrow_table)
     #                 logger.info(f"Pre-registered local table '{table_name.lower()}'")
     #         except Exception as e:
     #             logger.warning(f"Failed to pre-register {table_name}: {e}")
@@ -449,12 +460,12 @@ class StreamFlightServer(pa.flight.FlightServerBase):
     #         except Exception as e:
     #             logger.error(f"Failed to connect to external source: {e}")
 
-    def _render_query(self, cmd: QueryCommand, ctx: datafusion.SessionContext) -> str:
+    def _render_query(self, cmd: QueryCommand, ctx: duckdb.DuckDBPyConnection) -> str:
         """Processes Jinja templates into SQL strings using specific session context."""
         # Use thread-local storage accessable by ReaderExtension
         # This prevents race conditions in multi-threaded environment where
         # global environment variables would be overwritten.
-        context_storage.datafusion_ctx = ctx
+        context_storage.db_conn = ctx
         context_storage.connection_map = self.connection_map
         
         criteria = {k: SqlWrapper(v, k, jinja_env=self.jinja_env) for k, v in cmd.criteria.items()}
@@ -557,19 +568,22 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                     -1
                 )
 
-            # Plan the query to check for DDL/DML via Logical Plan (fallback for complex cases)
-            logical_plan = ctx.sql(sql).logical_plan()
-            
-            # Check for non-SELECT statements by inspecting the logical plan string representation
-            # DataFusion's logical plan for DDL/DML usually starts with specific keywords
-            plan_str = str(logical_plan).strip().upper()
-            is_modification = (
-                "DmlStatement" in str(logical_plan) or 
-                "CreateMemoryTable" in str(logical_plan)
-            )
 
-            if is_modification:
-                logger.info(f"Skipping schema inference for modification query: {sql[:50]}...")
+
+            # Use DuckDB to infer schema. 
+            # executing with limit 0 is a cheap way to get schema without running full query
+            # However for correct DDL/DML detection we might still roughly parse.
+            
+            # DuckDB allows DESCRIBE or just limit 0
+            rel = ctx.sql(sql)
+            # Fetch empty arrow table to get schema
+            try:
+                arrow_schema = rel.limit(0).arrow().schema
+                return pa.flight.FlightInfo(arrow_schema, descriptor, [pa.flight.FlightEndpoint(pa.flight.Ticket(descriptor.command), [self.location])], -1, -1)
+            except Exception as e:
+                # If limit 0 fails (e.g. multiple statements?), try to just execute it? 
+                # Or it might be a DDL/DML command.
+                logger.info(f"Limit 0 failed for schema inference ({e}). Returning empty schema result.")
                 return pa.flight.FlightInfo(
                     pa.schema([("result", pa.string())]), 
                     descriptor, 
@@ -577,9 +591,6 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                     -1, 
                     -1
                 )
-
-            df = ctx.sql(sql)
-            return pa.flight.FlightInfo(df.schema(), descriptor, [pa.flight.FlightEndpoint(pa.flight.Ticket(descriptor.command), [self.location])], -1, -1)
         except Exception as e:
             logger.error(f"Schema inference failed for session {cmd.session_id}. SQL:\n{sql}")
             # If planning fails (e.g. table doesn't exist yet but will be created), 
@@ -589,25 +600,107 @@ class StreamFlightServer(pa.flight.FlightServerBase):
 
 
     def do_action(self, context, action):
-        if action.type == "refresh_table":
+        if action.type == "get_schema":
+            body = json.loads(action.body.to_pybytes().decode())
+            session_id = body.get("session_id", "default")
+            ctx = self._get_session_context(session_id)
+            
+            try:
+                # DuckDB uses information_schema similar to Postgres
+                # Fetch tables directly from information_schema.tables to get correct types
+                tables_res = ctx.execute("""
+                    SELECT 
+                        table_schema,
+                        table_name,
+                        table_type
+                    FROM information_schema.tables 
+                    WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
+                    ORDER BY table_name
+                """).fetchall()
+                
+                tables_data = []
+                for table_schema, table_name, table_type in tables_res:
+                    # Fetch columns for each table/view
+                    # Use parameter binding if possible, but f-string varies with execute method support.
+                    # DuckDB python execute supports parameters.
+                    cols_res = ctx.execute("""
+                        SELECT 
+                            column_name,
+                            data_type
+                        FROM information_schema.columns 
+                        WHERE table_name = ? AND table_schema = ?
+                        ORDER BY ordinal_position
+                    """, [table_name, table_schema]).fetchall()
+                    
+                    columns = []
+                    for col_name, data_type in cols_res:
+                        columns.append({
+                            "name": col_name,
+                            "type": data_type,
+                            "primaryKey": False, # Basic schema inference
+                            "fk": None
+                        })
+                        
+                    tables_data.append({
+                        "name": table_name,
+                        "type": table_type,
+                        "columns": columns
+                    })
+                
+                schema = {
+                    "name": "DuckDB Session",
+                    "models": [], # Models are not yet supported/implemented
+                    "tables": tables_data
+                }
+                
+                return iter([pa.flight.Result(json.dumps(schema).encode())])
+            except Exception as e:
+                logger.error(f"Error fetching schema: {e}")
+                raise pa.flight.FlightServerError(f"Failed to fetch schema: {e}")
+
+        elif action.type == "refresh_table":
             body = json.loads(action.body.to_pybytes().decode())
             table_name = body.get("table_name")
             session_id = body.get("session_id", "default")
             ctx = self._get_session_context(session_id)
             
-            logger.info(f"Manually refreshing table '{table_name}' for session {session_id}")
+            logger.info(f"Refreshing table '{table_name}' for session {session_id}")
             
-            # Count how many tables were actually refreshed
-            # We'll check the logs or just assume if it doesn't crash it might have worked.
-            # But better: check if it exists in either one.
-            
-            self._register_tables_in_datafusion(ctx, target_table_name=table_name)
-            self._register_external_conns(ctx, target_table_name=table_name)
-            
-            # Check if DataFusion now has the table (it should if registered)
             try:
-                ctx.sql(f"SELECT 1 FROM {table_name} LIMIT 1")
+                # Check if view/table exists
+                ctx.execute(f"SELECT 1 FROM {table_name} LIMIT 1")
                 return iter([pa.flight.Result(json.dumps({"success": True}).encode())])
+            except Exception as e:
+                # Table might not exist or other error
+                logger.warning(f"Table refresh failed for {table_name}: {e}")
+                # We return success=False but don't error out flight to avoid UI crash
+                return iter([pa.flight.Result(json.dumps({"success": False, "message": str(e)}).encode())])
+
+        elif action.type == "drop_table":
+            body = json.loads(action.body.to_pybytes().decode())
+            table_name = body.get("table_name")
+            table_type = body.get("table_type", "").upper()
+            session_id = body.get("session_id", "default")
+            ctx = self._get_session_context(session_id)
+            
+            try:
+                logger.info(f"Dropping {table_type} '{table_name}' for session {session_id}")
+                safe_name = f'"{table_name}"'
+                
+                if table_type == 'VIEW':
+                     ctx.execute(f"DROP VIEW IF EXISTS {safe_name}")
+                elif table_type == 'BASE TABLE' or table_type == 'TABLE':
+                     ctx.execute(f"DROP TABLE IF EXISTS {safe_name}")
+                else:
+                    # Fallback if unknown type (try both, but safer to respect type if possible)
+                    # For safety, let's try dropping view first then table if ambiguous
+                    ctx.execute(f"DROP VIEW IF EXISTS {safe_name}")
+                    ctx.execute(f"DROP TABLE IF EXISTS {safe_name}")
+                    
+                return iter([pa.flight.Result(json.dumps({"success": True}).encode())])
+            except Exception as e:
+                logger.error(f"Failed to drop table {table_name}: {e}")
+                raise pa.flight.FlightServerError(f"Failed to drop table: {e}")
             except Exception as e:
                 logger.error(f"Table '{table_name}' could not be refreshed or found: {e}")
                 raise pa.flight.FlightServerError(f"Table '{table_name}' not found or refresh failed: {e}")

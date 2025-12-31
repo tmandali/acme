@@ -36,6 +36,7 @@ export interface Column {
 
 export interface Table {
   name: string
+  type?: string // 'BASE TABLE' | 'VIEW'
   columns: Column[]
 }
 

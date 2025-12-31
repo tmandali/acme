@@ -148,7 +148,35 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         }
     }, [sessionId])
 
+    // Drop Table
+    const handleDropTable = useCallback(async (tableName: string, tableType?: string) => {
+        if (!confirm(`Are you sure you want to drop ${tableType === 'VIEW' ? 'view' : 'table'} '${tableName}'?`)) {
+            return;
+        }
 
+        try {
+            const res = await fetch("/api/flight/action", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    actionType: "drop_table",
+                    payload: { session_id: sessionId, table_name: tableName, table_type: tableType }
+                })
+            })
+
+            const result = await res.json()
+            if (result.success) {
+                toast.success(`Table '${tableName}' dropped successfully.`)
+                refreshSchema() // Refresh schema to disappear from list
+            } else {
+                toast.error(result.message || "Failed to drop table.")
+            }
+        } catch (err: any) {
+            toast.error(err.message || "Failed to drop table.")
+        }
+    }, [sessionId, refreshSchema])
+
+    // Table Refresh Logic
     useEffect(() => {
         if (mounted) {
             refreshSchema()
@@ -740,6 +768,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                         schema={dbSchema}
                                         onTableClick={handleTableClick}
                                         onRefreshTable={handleRefreshTable}
+                                        onDropTable={handleDropTable}
                                         refreshingTables={refreshingTables}
                                         tableStats={tableStats}
                                         onClose={() => setSchemaPanelOpen(false)}

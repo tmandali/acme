@@ -59,11 +59,11 @@ class ReaderExtension(Extension):
             return "-- Error: Reader block is empty"
 
         # Use thread-local storage instead of global environment
-        ctx = getattr(context_storage, "datafusion_ctx", None)
+        ctx = getattr(context_storage, "db_conn", None)
         conn_map = getattr(context_storage, "connection_map", {})
         
         if not ctx:
-            return "-- Error: DataFusion context not found"
+            return "-- Error: Database context not found"
 
         # Resolve connection name if it's not a direct connection string
         if "://" not in conn_str and conn_str in conn_map:
@@ -83,9 +83,10 @@ class ReaderExtension(Extension):
             col_names = [col[0] for col in cursor.description]
             normalized_field_names = [n.lower() for n in col_names]
 
-            # Deregister existing table if present
+            # Deregister existing table if present (DuckDB specific)
             try:
-                ctx.deregister_table(name)
+                ctx.execute(f"DROP VIEW IF EXISTS {name}")
+                ctx.execute(f"DROP TABLE IF EXISTS {name}")
             except:
                 pass
 
@@ -137,16 +138,18 @@ class ReaderExtension(Extension):
                         for batch in batches:
                             writer.write_batch(batch)
                 
-                # Register parquet file
-                ctx.register_parquet(name, tmp_path)
+                # Register parquet file using DuckDB
+                # escaping path for SQL safety not critical for internal temp path but good practice
+                start_path = str(tmp_path).replace("'", "''")
+                ctx.execute(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM '{start_path}'")
                 
                 msg = f"Cached '{name}' to disk: {tmp_path}"
                 logger.info(msg)
                 return f"-- {msg}" # Return as comment so it might be visible if we parse comments
             else:
                 # Register in-memory (Zero-copy)
-                # Kopyalamasız işlem: Veriyi kopyalamaz, sadece referans verir.
-                ctx.register_record_batches(name, [batches])
+                table = pa.Table.from_batches(batches)
+                ctx.register(name, table)
                 logger.info(f"Dynamically registered table '{name}' in-memory with {len(batches)} batches")
                 return "" 
                 
