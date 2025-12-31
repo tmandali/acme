@@ -127,8 +127,6 @@ export const sampleResults = Array.from({ length: 50 }, (_, i) => {
 })
 
 // Örnek bağlantılar
-export const sampleConnections = [
-  { id: "default", name: "Varsayılan Bağlantı", type: "Arrow Flight" },
-  { id: "local", name: "Yerel Veritabanı (SQLite)", type: "SQLite" },
-]
+// Örnek bağlantılar
+export const sampleConnections: { id: string, name: string, type: string }[] = []
 

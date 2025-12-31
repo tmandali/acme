@@ -52,7 +52,7 @@ import { SQLToolbar } from "./sql-toolbar"
 
 // Tipler ve Veriler
 import type { Variable, QueryFile, Schema } from "../lib/types"
-import { sampleSchema, sampleResults, sampleConnections } from "../lib/data"
+import { sampleSchema, sampleResults } from "../lib/data"
 import { processJinjaTemplate, findVariablesInQuery } from "../lib/utils"
 
 interface SQLQueryPageClientProps {
@@ -78,7 +78,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     const [isResizingPanel, setIsResizingPanel] = useState(false)
     const [activeTab, setActiveTab] = useState<"edit" | "preview" | "api">("edit")
     const [mounted, setMounted] = useState(false)
-    const [selectedConnectionId, setSelectedConnectionId] = useState(initialData?.connectionId || sampleConnections[0].id)
+    const [selectedConnectionId, setSelectedConnectionId] = useState(initialData?.connectionId || "default")
     const [isConnOpen, setIsConnOpen] = useState(false)
     const [currentWorkflowId, setCurrentWorkflowId] = useState<string | null>(null)
     const [refreshingTables, setRefreshingTables] = useState<Set<string>>(new Set())
@@ -101,7 +101,9 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
 
     const [dbSchema, setDbSchema] = useState<Schema>({ name: "Veritabanı Bağlanıyor...", models: [], tables: [] })
     const queryStatusRef = useRef<"completed" | "cancelled" | null>(null)
-    const [connections, setConnections] = useState(sampleConnections)
+    const [connections, setConnections] = useState<{ id: string, name: string, type: string }[]>([
+        { id: "default", name: "Memory", type: "Engine" }
+    ])
 
     // Fetch connections from server
     useEffect(() => {
