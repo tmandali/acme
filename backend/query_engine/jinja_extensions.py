@@ -123,9 +123,19 @@ class ReaderExtension(Extension):
                 fd, tmp_path = tempfile.mkstemp(suffix=".parquet", prefix=f"{name}_")
                 os.close(fd)
                 
-                # Write batches to parquet
-                table = pa.Table.from_batches(batches)
-                pq.write_table(table, tmp_path)
+                # Write batches to parquet with optimized settings
+                if batches:
+                    schema = batches[0].schema
+                    # Performans ayarları: Snappy sıkıştırma, dictionary encoding ve uygun page size
+                    with pq.ParquetWriter(
+                        tmp_path, 
+                        schema, 
+                        compression='snappy', 
+                        use_dictionary=True,
+                        data_page_size=1024*1024  # 1MB
+                    ) as writer:
+                        for batch in batches:
+                            writer.write_batch(batch)
                 
                 # Register parquet file
                 ctx.register_parquet(name, tmp_path)
@@ -134,7 +144,8 @@ class ReaderExtension(Extension):
                 logger.info(msg)
                 return f"-- {msg}" # Return as comment so it might be visible if we parse comments
             else:
-                # Register in-memory
+                # Register in-memory (Zero-copy)
+                # Kopyalamasız işlem: Veriyi kopyalamaz, sadece referans verir.
                 ctx.register_record_batches(name, [batches])
                 logger.info(f"Dynamically registered table '{name}' in-memory with {len(batches)} batches")
                 return "" 
