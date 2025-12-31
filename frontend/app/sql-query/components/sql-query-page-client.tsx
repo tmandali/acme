@@ -101,11 +101,24 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
 
     useEffect(() => {
         setMounted(true);
-        let id = localStorage.getItem("acme_session_id");
-        if (!id) {
-            id = Math.random().toString(36).substring(2, 11);
+
+        // URL parametresinden session_id yakala (?session_id=...)
+        // Bu sayede belirli bir oturumu link ile paylaşabilir veya geri yükleyebiliriz
+        let id = "";
+        if (typeof window !== "undefined") {
+            const params = new URLSearchParams(window.location.search);
+            const urlSession = params.get("session_id");
+
+            id = urlSession || localStorage.getItem("acme_session_id") || "";
+
+            if (!id) {
+                id = Math.random().toString(36).substring(2, 11);
+            }
+
+            // Her durumda storage'ı güncel tut
             localStorage.setItem("acme_session_id", id);
         }
+
         setSessionId(id);
     }, []);
 
