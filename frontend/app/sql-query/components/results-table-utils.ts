@@ -1,25 +1,52 @@
-// Utility functions for ResultsTable component
+import dayjs from "dayjs"
+import duration from "dayjs/plugin/duration"
+import utc from "dayjs/plugin/utc"
+import prettyBytes from "pretty-bytes"
+
+dayjs.extend(duration)
+dayjs.extend(utc)
 
 /**
- * Formats milliseconds into a human-readable time string
- * @param ms - Time in milliseconds
- * @returns Formatted time string (e.g., "1sa 30dk 45sn")
+ * Formats bytes into a human-readable string
+ * @param bytes - Size in bytes
+ * @returns Formatted string (e.g. "1.34 MB")
  */
-export function formatTime(ms: number): string {
-    if (ms < 1000) return `${ms}ms`
+export function formatBytes(bytes: number): string {
+    return prettyBytes(bytes)
+}
 
-    const h = Math.floor(ms / 3600000)
-    const m = Math.floor((ms % 3600000) / 60000)
-    const s = Math.floor((ms % 60000) / 1000)
-    const msRemainder = ms % 1000
+/**
+ * Formats milliseconds into a time string
+ * @param ms - Time in milliseconds
+ * @param format - Optional format string (e.g. "HH:mm:ss.SSS") or null for human-readable default (e.g. "1sa 30dk")
+ * @returns Formatted time string
+ */
+export function formatTime(ms: number, format: string | null = null): string {
+    // Default 'human readable' behavior
+    if (format === null) {
+        if (ms < 1000) return `${ms}ms`
 
-    const parts: string[] = []
-    if (h > 0) parts.push(`${h}sa`)
-    if (m > 0 || h > 0) parts.push(`${m}dk`)
-    parts.push(`${s}sn`)
-    if (msRemainder > 0 && h === 0) parts.push(`${msRemainder}ms`)
+        const dur = dayjs.duration(ms)
+        const h = Math.floor(dur.asHours()) // Use asHours to get total hours without wrapping
+        const m = dur.minutes()
+        const s = dur.seconds()
+        const msRemainder = dur.milliseconds()
 
-    return parts.join(" ")
+        const parts: string[] = []
+        if (h > 0) parts.push(`${h}sa`)
+        if (m > 0 || h > 0) parts.push(`${m}dk`)
+        parts.push(`${s}sn`)
+        if (msRemainder > 0 && h === 0) parts.push(`${msRemainder}ms`)
+
+        return parts.join(" ")
+    }
+
+    // Custom format using dayjs
+    // We use UTC to treat 'ms' as time elapsed since epoch 0, avoiding timezone offsets
+    // Note: For durations > 24h, tokens like HH will wrap. For strict duration formatting >24h, 
+    // a specialized duration-format plugin would be needed, but standard format works for typical times.
+    // If the user manually asks for "SSS" (milliseconds), dayjs supports it.
+    return dayjs.utc(ms).format(format)
 }
 
 /**

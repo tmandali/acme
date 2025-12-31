@@ -176,7 +176,7 @@ export function ResultsTableGlide({
             <div className="h-full flex flex-col items-center justify-center bg-background">
                 <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
                 <p className="text-sm text-muted-foreground">Sorgu çalıştırılıyor...</p>
-                <p className="text-xs text-muted-foreground mt-2">{formatTime(elapsedTime)}</p>
+                <p className="text-xs text-muted-foreground mt-2">{formatTime(elapsedTime, "HH:mm:ss.SSS")}</p>
             </div>
         )
     }
@@ -281,14 +281,14 @@ export function ResultsTableGlide({
                             {!isLoading && executionTime !== undefined && (
                                 <span className="flex items-center gap-1 ml-3 pl-3 border-l text-muted-foreground font-normal">
                                     <Clock className="h-3 w-3 opacity-60" />
-                                    {formatTime(executionTime)}
+                                    {formatTime(executionTime, "HH:mm:ss.SSS")}
                                 </span>
                             )}
 
                             {isLoading && elapsedTime > 0 && (
                                 <span className="flex items-center gap-1 ml-3 pl-3 border-l text-blue-500/70 font-normal">
                                     <Clock className="h-3 w-3 opacity-60 animate-pulse" />
-                                    {formatTime(elapsedTime)}
+                                    {formatTime(elapsedTime, "HH:mm:ss.SSS")}
                                 </span>
                             )}
                         </span>
