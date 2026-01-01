@@ -10,6 +10,7 @@ class QueryCommand:
     query: Optional[str] = None
     session_id: str = "default"
     connection_id: Optional[str] = None
+    already_rendered: bool = False
     
     @classmethod
     def from_json(cls, json_str: str) -> 'QueryCommand':
@@ -19,7 +20,8 @@ class QueryCommand:
             criteria=data.get("criteria", {}),
             query=data.get("query"),
             session_id=data.get("session_id", "default"),
-            connection_id=data.get("connection_id")
+            connection_id=data.get("connection_id"),
+            already_rendered=data.get("already_rendered", False)
         )
 
 @dataclass

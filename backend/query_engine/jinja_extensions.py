@@ -64,6 +64,9 @@ class ReaderExtension(Extension):
         ctx = getattr(context_storage, "db_conn", None)
         conn_map = getattr(context_storage, "connection_map", {})
         
+        # Mark side effects so server knows not to optimize
+        context_storage.has_side_effects = True
+        
         if not ctx:
             return "-- Error: Database context not found"
 

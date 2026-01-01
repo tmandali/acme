@@ -479,6 +479,9 @@ class StreamFlightServer(pa.flight.FlightServerBase):
 
     def _render_query(self, cmd: QueryCommand, ctx: duckdb.DuckDBPyConnection) -> str:
         """Processes Jinja templates into SQL strings using specific session context."""
+        if cmd.already_rendered:
+            return cmd.query
+
         # Use thread-local storage accessable by ReaderExtension
         # This prevents race conditions in multi-threaded environment where
         # global environment variables would be overwritten.
@@ -542,10 +545,34 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         
         # Optimize: Tell extensions we only need schema
         context_storage.is_schema_inference = True
+        context_storage.has_side_effects = False
+        
         try:
             sql = self._render_query(cmd, ctx)
         finally:
             context_storage.is_schema_inference = False
+        
+        # Determine Ticket Strategy
+        # If no side effects (e.g. Reader Extensions) happened, we can safely pass the rendered SQL
+        # to DoGet, saving a second render pass.
+        # If side effects happened, DoGet MUST re-render to trigger appropriate "Full Load" side effects.
+        has_side_effects = getattr(context_storage, "has_side_effects", False)
+        
+        if not has_side_effects and sql and sql.strip():
+             # Create optimized command
+             optimized_cmd = QueryCommand(
+                 template="", # No template
+                 query=sql,   # Rendered SQL
+                 criteria={}, # No criteria needed
+                 session_id=cmd.session_id,
+                 connection_id=cmd.connection_id,
+                 already_rendered=True
+             )
+             ticket_payload = json.dumps(asdict(optimized_cmd)).encode()
+        else:
+             # Fallback to original command (re-render in DoGet)
+             # Explicitly re-serialize to ensure session_id is always explicit in ticket
+             ticket_payload = json.dumps(asdict(cmd)).encode()
         
         if not sql or not sql.strip():
             # User likely only used {% reader %} or {% macro %} blocks without a query
@@ -553,7 +580,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
             return pa.flight.FlightInfo(
                  pa.schema([("Result", pa.string())]), 
                  descriptor, 
-                 [pa.flight.FlightEndpoint(pa.flight.Ticket(descriptor.command), [self.location])], 
+                 [pa.flight.FlightEndpoint(pa.flight.Ticket(ticket_payload), [self.location])], 
                  -1, 
                  -1
             )
@@ -565,7 +592,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
              return pa.flight.FlightInfo(
                  pa.schema([("Result", pa.string())]), 
                  descriptor, 
-                 [pa.flight.FlightEndpoint(pa.flight.Ticket(descriptor.command), [self.location])], 
+                 [pa.flight.FlightEndpoint(pa.flight.Ticket(ticket_payload), [self.location])], 
                  -1, 
                  -1
             )
@@ -586,7 +613,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                 return pa.flight.FlightInfo(
                     pa.schema([("result", pa.string())]), 
                     descriptor, 
-                    [pa.flight.FlightEndpoint(pa.flight.Ticket(descriptor.command), [self.location])], 
+                    [pa.flight.FlightEndpoint(pa.flight.Ticket(ticket_payload), [self.location])], 
                     -1, 
                     -1
                 )
@@ -602,7 +629,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
             # Fetch empty arrow table to get schema
             try:
                 arrow_schema = rel.limit(0).arrow().schema
-                return pa.flight.FlightInfo(arrow_schema, descriptor, [pa.flight.FlightEndpoint(pa.flight.Ticket(descriptor.command), [self.location])], -1, -1)
+                return pa.flight.FlightInfo(arrow_schema, descriptor, [pa.flight.FlightEndpoint(pa.flight.Ticket(ticket_payload), [self.location])], -1, -1)
             except Exception as e:
                 # If limit 0 fails (e.g. multiple statements?), try to just execute it? 
                 # Or it might be a DDL/DML command.
@@ -610,7 +637,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                 return pa.flight.FlightInfo(
                     pa.schema([("result", pa.string())]), 
                     descriptor, 
-                    [pa.flight.FlightEndpoint(pa.flight.Ticket(descriptor.command), [self.location])], 
+                    [pa.flight.FlightEndpoint(pa.flight.Ticket(ticket_payload), [self.location])], 
                     -1, 
                     -1
                 )
