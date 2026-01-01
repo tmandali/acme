@@ -183,21 +183,24 @@ export function ResultsTableGlide({
 
     if (!isLoading && error) {
         return (
-            <div className="h-full flex flex-col items-center justify-center bg-background p-6 text-center">
-                <XCircle className="h-12 w-12 text-red-500/50 mb-4" />
-                <p className="text-sm text-foreground font-medium mb-2">Sorgu Hatası</p>
-                <div className="max-w-2xl overflow-auto max-h-[200px] p-4 bg-red-50 dark:bg-red-950/20 text-red-900 dark:text-red-200 rounded-md font-mono text-xs whitespace-pre-wrap border border-red-200 dark:border-red-900/50 mb-4">
-                    {error}
-                </div>
-
-                {executedQuery && (
-                    <div className="max-w-2xl w-full bg-muted/30 border rounded-md p-3 text-left">
-                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-semibold">{connectionName || "Sorgu Detayı"}</p>
-                        <code className="text-xs font-mono text-foreground/80 block whitespace-pre-wrap max-h-[150px] overflow-auto">
-                            {executedQuery.length > 500 ? executedQuery.substring(0, 500) + "..." : executedQuery}
-                        </code>
+            <div className="h-full flex flex-col items-center justify-start items-stretch bg-background p-0">
+                <div className="flex-1 w-full bg-zinc-50 dark:bg-zinc-950 text-red-600 dark:text-red-400 font-mono text-xs overflow-hidden flex flex-col border-t border-zinc-200 dark:border-zinc-800">
+                    {/* Status Bar (Header) */}
+                    <div className="flex items-center justify-between px-3 h-8 border-b border-red-200 dark:border-red-900/30 bg-muted/30 backdrop-blur-sm sticky top-0 z-10 select-none">
+                        <div className="flex items-center gap-2 text-[10px] text-red-500/70">
+                            <span className="font-bold">STATUS: FAILED</span>
+                            <span>•</span>
+                            <span>EXIT CODE: 1</span>
+                        </div>
+                        {executionTime !== undefined && (
+                            <span className="text-[10px] text-red-500/70">DURATION: {formatTime(executionTime)}</span>
+                        )}
                     </div>
-                )}
+                    {/* Content */}
+                    <div className="flex-1 overflow-auto p-4 whitespace-pre-wrap">
+                        {error}
+                    </div>
+                </div>
             </div>
         )
     }
@@ -211,7 +214,7 @@ export function ResultsTableGlide({
         )
     }
 
-    // Check for single-row message (e.g. from Reader extension with Parquet path)
+    // Check for single-row message (e.g. from Reader extension or Python script stdout)
     const isSingleRowMessage = !isLoading && queryStatus === 'completed' && rowCount === 1 && columns.length === 1 && columns[0].title === "Result";
 
     if ((!isLoading && queryStatus === 'completed' && rowCount === 0) || isSingleRowMessage) {
@@ -222,8 +225,6 @@ export function ResultsTableGlide({
 
         if (isSingleRowMessage) {
             // Extract message from the single cell
-            // Since getting cell content is complex with virtualizer, we'll try to access data directly if possible or simplify
-            // For Arrow:
             if (results.length > 0 && 'numRows' in results[0]) {
                 const batch = results[0] as RecordBatch;
                 const val = batch.getChildAt(0)?.get(0);
@@ -240,20 +241,37 @@ export function ResultsTableGlide({
             successDesc = `Sorgulamak için 'SELECT * FROM ${tableName}' yazın.`;
         }
 
+        // If it's a script output (SingleRowMessage), show Terminal View
+        if (isSingleRowMessage) {
+            return (
+                <div className="h-full flex flex-col items-center justify-start items-stretch bg-background p-0">
+                    <div className="flex-1 w-full bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-100 font-mono text-xs overflow-hidden flex flex-col border-t border-zinc-200 dark:border-zinc-800">
+                        {/* Status Bar (Header) */}
+                        <div className="flex items-center justify-between px-3 h-8 border-b border-zinc-200 dark:border-zinc-800 bg-muted/30 backdrop-blur-sm sticky top-0 z-10 select-none">
+                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                                <span className="text-emerald-600 dark:text-emerald-500 font-bold">STATUS: SUCCESS</span>
+                                <span>•</span>
+                                <span>EXIT CODE: 0</span>
+                            </div>
+                            {executionTime !== undefined && (
+                                <span className="text-[10px] text-muted-foreground">DURATION: {formatTime(executionTime)}</span>
+                            )}
+                        </div>
+                        {/* Content */}
+                        <div className="flex-1 overflow-auto p-4 whitespace-pre-wrap">
+                            {successDesc}
+                        </div>
+                    </div>
+                </div>
+            )
+        }
+
+        // Default "No Data" Centered View for 0-row results
         return (
             <div className="h-full flex flex-col items-center justify-center bg-background p-6">
                 <CheckCircle2 className="h-12 w-12 text-emerald-500/50 mb-4" />
                 <p className="text-sm text-foreground font-medium">{successTitle}</p>
                 <p className="text-xs text-muted-foreground mt-1 mb-4">{successDesc}</p>
-
-                {executedQuery && (
-                    <div className="max-w-2xl w-full bg-muted/30 border rounded-md p-3 mb-4">
-                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-semibold">{connectionName || "Sorgu Detayı"}</p>
-                        <code className="text-xs font-mono text-foreground/80 block whitespace-pre-wrap max-h-[150px] overflow-auto">
-                            {executedQuery.length > 500 ? executedQuery.substring(0, 500) + "..." : executedQuery}
-                        </code>
-                    </div>
-                )}
 
                 {executionTime !== undefined && (
                     <p className="text-[10px] text-muted-foreground px-2 py-1 bg-muted rounded-full">

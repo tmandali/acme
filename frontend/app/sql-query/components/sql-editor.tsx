@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect } from "react"
+import { useRef, useCallback, useEffect, useState } from "react"
 import dynamic from "next/dynamic"
 import { Button } from "@/components/ui/button"
 import { Play, Square, GripHorizontal } from "lucide-react"
@@ -344,6 +344,7 @@ export const SQLEditor = forwardRef<SQLEditorRef, SQLEditorProps>(function SQLEd
   schema,
   readOnly = false,
 }, ref) {
+  const [editorLoaded, setEditorLoaded] = useState(false)
   const editorInstanceRef = useRef<any>(null)
 
   // Use a ref to store the latest query for the gutter click handler
@@ -491,7 +492,7 @@ export const SQLEditor = forwardRef<SQLEditorRef, SQLEditorProps>(function SQLEd
     return () => {
       editor.off("guttermousedown", onGutterClick);
     };
-  }, [onGutterClick]);
+  }, [onGutterClick, editorLoaded]);
 
 
   // Update the global schema reference for the Ace completer
@@ -541,6 +542,7 @@ export const SQLEditor = forwardRef<SQLEditorRef, SQLEditorProps>(function SQLEd
           onLoad={(editor) => {
             editorInstanceRef.current = editor
             updateDecorations();
+            setEditorLoaded(true);
           }}
           mode="sql_nunjucks"
 

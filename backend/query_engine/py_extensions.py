@@ -301,6 +301,7 @@ import pyarrow as pa
 import json
 import datetime
 import os
+import io
 
 # Try imports
 try:
@@ -316,17 +317,45 @@ def {func_name}():
 {indented_code}
 
 if __name__ == "__main__":
+    # Capture user stdout and stderr (Python level)
+    captured_stdout = io.StringIO()
+    captured_stderr = io.StringIO()
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    sys.stdout = captured_stdout
+    sys.stderr = captured_stderr
+
     try:
         result = {func_name}()
-        if result is not None:
-            converter = ArrowConverter()
-            table = converter.convert_to_arrow_table(result)
-            
-            # Write schema and batches to stdout buffer
-            with pa.ipc.new_stream(sys.stdout.buffer, table.schema) as writer:
-                writer.write_table(table)
     except Exception as e:
-        # Write error to stderr
+        # Restore stderr to print the error ensuring it goes to pipe
+        sys.stderr = original_stderr
+        sys.stderr.write(str(e))
+        sys.exit(1)
+    finally:
+        sys.stdout = original_stdout # Restore stdout for IPC
+        sys.stderr = original_stderr # Restore stderr
+
+    try:
+        converter = ArrowConverter()
+        table = converter.convert_to_arrow_table(result)
+        
+        # Attach captured output to metadata so parent process can read it
+        user_stdout = captured_stdout.getvalue()
+        user_stderr = captured_stderr.getvalue()
+        
+        new_metadata = table.schema.metadata or {{}}
+        if user_stdout:
+             new_metadata[b'stdout'] = user_stdout.encode('utf-8')
+        if user_stderr:
+             new_metadata[b'stderr'] = user_stderr.encode('utf-8')
+        
+        table = table.replace_schema_metadata(new_metadata)
+        
+        # Write schema and batches to stdout buffer
+        with pa.ipc.new_stream(sys.stdout.buffer, table.schema) as writer:
+            writer.write_table(table)
+    except Exception as e:
         sys.stderr.write(str(e))
         sys.exit(1)
 """
@@ -344,32 +373,62 @@ if __name__ == "__main__":
             )
             
             # Read from stdout wrapped in Arrow stream
-            # We catch pure stderr output separately
+            arrow_table = None
+            ipc_error = None
+            
             try:
                 # Open stream reader from stdout
-                # This will raise ArrowInvalid if stdout is empty or not arrow (e.g. error msg only)
                 reader = pa.ipc.open_stream(process.stdout)
                 arrow_table = reader.read_all()
-            except Exception as read_err:
-                # Check stderr for the actual error
-                stderr_out = process.stderr.read().decode('utf-8')
-                if stderr_out:
-                     # Clean up stderr output for display
-                     clean_err = stderr_out.replace(chr(10), "\n").strip()
-                     raise RuntimeError(f"Python execution failed:\n{clean_err}")
-                
-                # If no stderr, it might be an issue with empty output or IPC format
-                if "Empty stream" in str(read_err):
-                     # Maybe function returned None -> treated as success but no table
-                     return ""
-                
-                raise RuntimeError(f"Error reading IPC stream: {read_err}")
-            finally:
-                process.wait()
+            except Exception as e:
+                ipc_error = e
+
+            process.wait()
+            
+            # Read any C-level stderr or crash output from pipe
+            pipe_stderr = process.stderr.read().decode('utf-8', errors='replace').strip()
+            
+            if process.returncode != 0:
+                 # Prefer pipe stderr for crash details
+                 err_msg = pipe_stderr if pipe_stderr else str(ipc_error)
+                 raise RuntimeError(f"Python execution failed:\n{err_msg}")
+            
+            if ipc_error:
+                 # Process 0 but IPC failed? (e.g. empty stdout but no crash)
+                 if "Empty stream" in str(ipc_error):
+                      # Likely function returned None/Empty and script just exited without writing table?
+                      # Our wrapper always writes table unless it crashes. 
+                      # But wrapper catches exception.
+                      # If wrapper crashed in IPC write block, it writes to stderr and exits 1.
+                      # So returncode should be 1.
+                      pass
+                 else:
+                      raise RuntimeError(f"Error reading result stream: {ipc_error}\nStderr: {pipe_stderr}")
 
             # Register in DuckDB context
-            # We assume context_storage is available (imported from jinja_extensions)
             if context_storage:
+                # 1. Collect Stdout from Metadata (Python print)
+                if arrow_table and arrow_table.schema.metadata:
+                    if b'stdout' in arrow_table.schema.metadata:
+                        try:
+                            s_out = arrow_table.schema.metadata[b'stdout'].decode('utf-8')
+                            if not hasattr(context_storage, "python_stdout"): context_storage.python_stdout = ""
+                            context_storage.python_stdout += s_out
+                        except: pass
+                    
+                    # 2. Collect Stderr from Metadata (Python warnings/sys.stderr)
+                    if b'stderr' in arrow_table.schema.metadata:
+                        try:
+                            s_err = arrow_table.schema.metadata[b'stderr'].decode('utf-8')
+                            if not hasattr(context_storage, "python_stdout"): context_storage.python_stdout = ""
+                            context_storage.python_stdout += f"\n[STDERR]\n{s_err}\n"
+                        except: pass
+
+                # 3. Collect C-level pipe Stderr (if any, appearing on successful exit)
+                if pipe_stderr:
+                    if not hasattr(context_storage, "python_stdout"): context_storage.python_stdout = ""
+                    context_storage.python_stdout += f"\n[SYSTEM]\n{pipe_stderr}\n"
+
                 ctx = getattr(context_storage, "db_conn", None)
                 if ctx and arrow_table:
                     try:
@@ -383,6 +442,19 @@ if __name__ == "__main__":
                     sid = getattr(context_storage, "session_id", "unknown")
                     logger.info(f"[{sid}] Registered result of '{name}' (via subprocess)")
                     context_storage.has_side_effects = True
+                    
+                    # Append registration info to stdout for terminal visibility
+                    row_count = arrow_table.num_rows
+                    reg_info = f"Table '{name}' registered successfully ({row_count} rows)."
+                    if not hasattr(context_storage, "python_stdout"): 
+                        context_storage.python_stdout = ""
+                    
+                    # Ensure separation if there is existing output
+                    if context_storage.python_stdout and not context_storage.python_stdout.endswith("\n"):
+                         context_storage.python_stdout += "\n"
+                    
+                    context_storage.python_stdout += reg_info + "\n"
+                    
                     return ""
             else:
                  return "-- Error: Context storage not available"
@@ -391,7 +463,9 @@ if __name__ == "__main__":
             raise RuntimeError(f"System Error executing python block: {e}")
         finally:
             if os.path.exists(script_path):
-                os.remove(script_path)
+                try:
+                    os.remove(script_path)
+                except:
+                    pass
         
         return ""
-

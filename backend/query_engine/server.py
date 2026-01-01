@@ -127,7 +127,12 @@ class StreamFlightServer(pa.flight.FlightServerBase):
             if is_effectively_empty:
                  # Construct message from comments or default
                  msg = "İşlem başarıyla tamamlandı."
-                 if comment_lines:
+                 
+                 # Check for Python stdout capture (from PythonExtension)
+                 python_stdout = getattr(context_storage, "python_stdout", None)
+                 if python_stdout:
+                     msg = python_stdout.strip()
+                 elif comment_lines:
                      msg = "\n".join(comment_lines)
 
                  # Return single row with message
@@ -489,6 +494,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         context_storage.db_conn = ctx
         context_storage.connection_map = self.connection_map
         context_storage.session_id = cmd.session_id
+        context_storage.python_stdout = "" # Clear captured stdout
         
         criteria = {k: SqlWrapper(v, k, jinja_env=self.jinja_env) for k, v in cmd.criteria.items()}
         
