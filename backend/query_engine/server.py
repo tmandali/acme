@@ -323,6 +323,12 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         self.jinja_env.globals["now"] = datetime.now().strftime("%Y%m%d")
         self.jinja_env.globals["zip"] = zip
         
+        # Boolean aliases for case-insensitivity in templates
+        self.jinja_env.globals.update({
+            "TRUE": True, "FALSE": False,
+            "True": True, "False": False
+        })
+        
         # Register Filters
         filters = {
             "quote": filter_quote, "sql": filter_sql, "between": filter_between,

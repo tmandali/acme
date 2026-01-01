@@ -52,7 +52,9 @@ class ReaderExtension(Extension):
             return "-- Error: Reader tag requires table_name and connection_string"
         
         name, conn_str = args[0], args[1]
-        use_parquet = args[2] if len(args) > 2 else False
+        name, conn_str = args[0], args[1]
+        # User requested no quoted usage. We expect booleans (TRUE/FALSE globals).
+        use_parquet = bool(args[2]) if len(args) > 2 else False
         
         inner_sql = caller().strip()
         if not inner_sql:
