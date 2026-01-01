@@ -95,77 +95,94 @@ class ReaderExtension(Extension):
             batches = []
             
             is_inference = getattr(context_storage, "is_schema_inference", False)
+            parquet_writer = None
+            tmp_parquet_path = None
             
-            while True:
-                rows = cursor.fetchmany(10000) # Increased batch size for efficiency
-                if not rows:
-                    break
-                
-                cols = list(zip(*rows))
-                batch = pa.RecordBatch.from_arrays(
-                    [pa.array(c) for c in cols],
-                    names=normalized_field_names
-                )
-                batches.append(batch)
-                
-                if is_inference:
-                     # Stop after first batch if we only need schema
-                     break
-            
-            conn.close()
-
-            if not batches:
-                # Handle empty result
-                fields = [pa.field(n, pa.string()) for n in normalized_field_names]
-                schema = pa.schema(fields)
-                empty_batch = pa.RecordBatch.from_arrays(
-                    [pa.array([], type=pa.string()) for _ in normalized_field_names],
-                    schema=schema
-                )
-                batches = [empty_batch]
-
-            if use_parquet:
+            if use_parquet and not is_inference:
                 import tempfile
                 import os
                 import pyarrow.parquet as pq
-                
-                # Create a temporary file
-                fd, tmp_path = tempfile.mkstemp(suffix=".parquet", prefix=f"{name}_")
+                fd, tmp_parquet_path = tempfile.mkstemp(suffix=".parquet", prefix=f"{name}_")
                 os.close(fd)
-                
-                # Write batches to parquet with optimized settings
-                if batches:
-                    schema = batches[0].schema
-                    # Performans ayarları: Snappy sıkıştırma, dictionary encoding ve uygun page size
-                    with pq.ParquetWriter(
-                        tmp_path, 
-                        schema, 
-                        compression='snappy', 
-                        use_dictionary=True,
-                        data_page_size=1024*1024  # 1MB
-                    ) as writer:
-                        for batch in batches:
-                            writer.write_batch(batch)
-                
-                # Register parquet file using DuckDB
-                # escaping path for SQL safety not critical for internal temp path but good practice
-                start_path = str(tmp_path).replace("'", "''")
-                ctx.execute(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM '{start_path}'")
-                
-                sid = getattr(context_storage, "session_id", "unknown")
-                msg = f"[{sid}] Cached '{name}' to disk: {tmp_path}"
-                logger.info(msg)
-                return f"-- {msg}" # Return as comment so it might be visible if we parse comments
-            else:
-                # Register in-memory (Zero-copy)
-                table = pa.Table.from_batches(batches)
-                ctx.register(name, table)
-                sid = getattr(context_storage, "session_id", "unknown")
-                if is_inference:
-                    logger.info(f"[{sid}] Schema-only registration for '{name}' (1 batch)")
-                else: 
-                    logger.info(f"[{sid}] Dynamically registered table '{name}' in-memory with {len(batches)} batches")
-                return "" 
+
+            try:
+                while True:
+                    rows = cursor.fetchmany(10000) # Increased batch size for efficiency
+                    if not rows:
+                        break
+                    
+                    cols = list(zip(*rows))
+                    batch = pa.RecordBatch.from_arrays(
+                        [pa.array(c) for c in cols],
+                        names=normalized_field_names
+                    )
+                    
+                    if use_parquet and not is_inference:
+                         if parquet_writer is None:
+                             # Initialize writer with schema from first batch
+                             parquet_writer = pq.ParquetWriter(
+                                tmp_parquet_path, 
+                                batch.schema, 
+                                compression='snappy', 
+                                use_dictionary=True,
+                                data_page_size=1024*1024
+                            )
+                         parquet_writer.write_batch(batch)
+                         # Do not append to batches list to save memory
+                    else:
+                        batches.append(batch)
+                    
+                    if is_inference:
+                         # Stop after first batch if we only need schema
+                         break
+            finally:
+                if parquet_writer:
+                    parquet_writer.close()
+            
+            conn.close()
+
+            if use_parquet and not is_inference and parquet_writer is not None:
+                # Parquet file is ready
+                 start_path = str(tmp_parquet_path).replace("'", "''")
+                 ctx.execute(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM '{start_path}'")
+                 
+                 sid = getattr(context_storage, "session_id", "unknown")
+                 msg = f"[{sid}] Cached '{name}' to disk: {tmp_parquet_path}"
+                 logger.info(msg)
+                 return f"-- {msg}"
+
+            if not batches and (not use_parquet or is_inference):
+                # Handle empty result if not parquet or if parquet failed to write any batch (empty source)
+                # Or if we are in inference mode (where we always populate batches[0])
+                if not batches and not parquet_writer: # truly empty
+                     fields = [pa.field(n, pa.string()) for n in normalized_field_names]
+                     schema = pa.schema(fields)
+                     empty_batch = pa.RecordBatch.from_arrays(
+                         [pa.array([], type=pa.string()) for _ in normalized_field_names],
+                         schema=schema
+                     )
+                     batches = [empty_batch]
+
+            if use_parquet and is_inference:
+                # Inference mode with parquet: just register memory version of first batch because we didn't write to disk
+                # Or we could write to disk but it's waste for inference. We just want schema.
+                pass 
+                # Continues to register in-memory below which is fine for inference
+
+            if use_parquet and not is_inference and parquet_writer is None:
+                 # Empty parquet case
+                 # Write empty parquet file? or just register empty view?
+                 # Let's fallback to memory registration for empty parquet request to simplify
+                 pass
+            # Register in-memory (Zero-copy)
+            table = pa.Table.from_batches(batches)
+            ctx.register(name, table)
+            sid = getattr(context_storage, "session_id", "unknown")
+            if is_inference:
+                logger.info(f"[{sid}] Schema-only registration for '{name}' (1 batch)")
+            else: 
+                logger.info(f"[{sid}] Dynamically registered table '{name}' in-memory with {len(batches)} batches")
+            return "" 
                 
         except Exception as e:
             err_msg = f"Error in reader tag: {str(e)}"
