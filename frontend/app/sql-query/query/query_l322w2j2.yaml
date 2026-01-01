@@ -35,8 +35,8 @@ sql: |+
     import xml.etree.ElementTree as ET
     url = "https://www.tcmb.gov.tr/kurlar/today.xml"
     
-    print('Kurlar çekiliyor')
-      
+    print("Güncel Kur Durumu \U0001F4B0")
+    
     # 1. XML verisini internetten çekiyoruz
     response = requests.get(url)
     response.raise_for_status() # Hata kontrolü (Bağlantı sorunu varsa hata verir)
@@ -63,6 +63,7 @@ sql: |+
                 "satis": float(satis) if satis else 0.0
             }
             doviz_listesi.append(doviz_verisi)
+            print(f"{kod} döviz işlendi ✅" )
 
     return doviz_listesi
   {% endpython %}
