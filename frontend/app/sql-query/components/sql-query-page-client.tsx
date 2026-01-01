@@ -99,28 +99,71 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         }
     }, [initialData])
 
+    // Helper to fetch new session
+    const fetchNewSession = useCallback(async () => {
+        try {
+            const res = await fetch("/api/flight/action", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ actionType: "create_session" })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.session_id) {
+                    return data.session_id;
+                }
+                throw new Error("Mising session_id in response");
+            } else {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || `Server error: ${res.status} ${res.statusText}`);
+            }
+        } catch (e: any) {
+            console.error("Failed to create session on server, falling back to local:", e.message);
+            // Fallback
+            return "Session_Local_" + Math.random().toString(36).substring(2, 7).toUpperCase();
+        }
+    }, []);
+
     useEffect(() => {
         setMounted(true);
 
-        // URL parametresinden session_id yakala (?session_id=...)
-        // Bu sayede belirli bir oturumu link ile paylaşabilir veya geri yükleyebiliriz
-        let id = "";
-        if (typeof window !== "undefined") {
-            const params = new URLSearchParams(window.location.search);
-            const urlSession = params.get("session_id");
+        const initSession = async () => {
+            let id = "";
+            let urlSession = null;
 
-            id = urlSession || localStorage.getItem("acme_session_id") || "";
+            if (typeof window !== "undefined") {
+                const params = new URLSearchParams(window.location.search);
+                urlSession = params.get("session_id");
 
-            if (!id) {
-                id = Math.random().toString(36).substring(2, 11);
+                // If ID provided in URL, prioritize it
+                if (urlSession) {
+                    id = urlSession;
+                } else {
+                    // Check local storage
+                    const stored = localStorage.getItem("acme_session_id");
+                    if (stored) {
+                        id = stored;
+                    }
+                }
             }
 
-            // Her durumda storage'ı güncel tut
-            localStorage.setItem("acme_session_id", id);
-        }
+            // If still no ID, create one from server
+            if (!id) {
+                id = await fetchNewSession();
+            }
 
-        setSessionId(id);
-    }, []);
+            // Sync storage
+            if (typeof window !== "undefined") {
+                localStorage.setItem("acme_session_id", id);
+                // If URL had session, maybe we want to keep it or clear it? 
+                // Keeping it simplest for now.
+            }
+
+            setSessionId(id);
+        };
+
+        initSession();
+    }, [fetchNewSession]);
 
     const [dbSchema, setDbSchema] = useState<Schema>({ name: "Veritabanı Bağlanıyor...", models: [], tables: [] })
     const queryStatusRef = useRef<"completed" | "cancelled" | null>(null)
@@ -160,6 +203,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
 
     // Schema Fetching
     const refreshSchema = useCallback(async () => {
+        if (!sessionId) return; // Wait for session
         try {
             const res = await fetch(`/api/flight/schema?session_id=${sessionId}`, {
                 headers: { "x-session-id": sessionId }
@@ -203,10 +247,10 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
 
     // Table Refresh Logic
     useEffect(() => {
-        if (mounted) {
+        if (mounted && sessionId) {
             refreshSchema()
         }
-    }, [mounted, refreshSchema])
+    }, [mounted, sessionId, refreshSchema])
 
     // Hook integration
     const {
@@ -284,8 +328,12 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         }
     }, [sessionId, refreshSchema, setErrorDetail])
 
-    const handleNewSession = useCallback(() => {
-        const newId = Math.random().toString(36).substring(2, 11);
+    const handleNewSession = useCallback(async () => {
+        if (!confirm("Yeni bir oturum başlatmak istediğinize emin misiniz? Mevcut oturumdaki geçici kayıtlar kaybolacaktır.")) {
+            return;
+        }
+
+        const newId = await fetchNewSession();
         localStorage.setItem("acme_session_id", newId);
 
         // Clear UI states immediately to prevent stale data "lag"
@@ -296,8 +344,8 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         setTableStats({});
 
         setSessionId(newId);
-        toast.info("Yeni oturum başlatıldı. Tüm geçici kayıtlar sıfırlandı.");
-    }, [setResults]);
+        toast.info(`Yeni oturum başlatıldı: ${newId}`);
+    }, [setResults, fetchNewSession]);
 
     const handleRunQueryWrapper = useCallback(async (queryToRun?: string) => {
         const targetQuery = typeof queryToRun === 'string' ? queryToRun : query

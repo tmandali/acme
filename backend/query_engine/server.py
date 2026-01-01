@@ -840,4 +840,23 @@ class StreamFlightServer(pa.flight.FlightServerBase):
             except Exception as e:
                 raise pa.flight.FlightServerError(f"Failed to delete connection: {e}")
 
+        elif action.type == "create_session":
+            # Generate readable unique session ID
+            # Format: Session_HHMMSS_{rnd}
+            import random
+            import string
+            
+            while True:
+                now_str = datetime.now().strftime("%H%M%S")
+                rnd = ''.join(random.choices(string.ascii_uppercase, k=3))
+                new_session_id = f"Session_{now_str}_{rnd}"
+                
+                if new_session_id not in self._sessions:
+                    break
+            
+            # Pre-initialize session (optional but ensures it is ready)
+            self._get_session_context(new_session_id)
+            
+            return iter([pa.flight.Result(json.dumps({"success": True, "session_id": new_session_id}).encode())])
+
         raise pa.flight.FlightServerError(f"Unknown action: {action.type}")
