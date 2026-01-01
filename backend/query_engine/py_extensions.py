@@ -286,214 +286,134 @@ class PythonExtension(Extension):
         func_name = f"_python_block_{hash(code) & 0xFFFFFFFF}"
         indented_code = textwrap.indent(dedented_code, "    ")
         
-        # Build a stanalone script wrapper
-        # Read helper class content (this file itself)
-        py_ext_path = pathlib.Path(__file__)
-        try:
-            with open(py_ext_path, "r", encoding="utf-8") as f:
-                helper_code = f.read()
-        except Exception as e:
-            raise RuntimeError(f"Error reading py_extensions.py: {e}")
-
-        # Build a stanalone script wrapper
-        script_content = f"""
-import sys
-import pyarrow as pa
-import json
-import datetime
-import os
-import io
-
-# Try imports
-try:
-    import pandas as pd
-except ImportError:
-    pd = None
-
-# --- Injected Helper Class ---
-{helper_code}
-# -----------------------------
-
-def {func_name}():
-{indented_code}
-
-if __name__ == "__main__":
-    # Capture user stdout (print calls) and redirect to stderr with prefix for real-time parent streaming
-    class StreamToStderr:
-        def __init__(self, original_stderr):
-            self.original_stderr = original_stderr
-            self.line_buffer = ""
-            self.capture_buffer = io.StringIO()
+        # In-Process Execution Strategy
+        # We define a function wrapping the users code, then execute it.
+        # This allows access to the existing process state (DuckDB connection).
         
-        def write(self, data):
-            self.capture_buffer.write(data)
-            self.line_buffer += data
-            
-            while "\\n" in self.line_buffer:
-                line, rest = self.line_buffer.split("\\n", 1)
-                # We format explicitly with newline to match parent's readline expectation
-                self.original_stderr.write(f"__STDOUT__:{{line}}\\n")
-                self.original_stderr.flush()
-                self.line_buffer = rest
+        # 1. Prepare Execution Environment (Globals/Locals)
         
-        def flush(self):
-            if self.line_buffer:
-                self.original_stderr.write(f"__STDOUT__:{{self.line_buffer}}\\n")
-                self.line_buffer = ""
-            self.original_stderr.flush()
-            
-        def getvalue(self):
-            return self.capture_buffer.getvalue()
-
-    original_stdout = sys.stdout
-    original_stderr = sys.stderr
-    
-    streamer = StreamToStderr(original_stderr)
-    sys.stdout = streamer
-
-    try:
-        result = {func_name}()
-    except Exception as e:
-        # Write error to stderr normally
-        sys.stderr = original_stderr
-        sys.stderr.write(str(e))
-        sys.exit(1)
-    finally:
-        sys.stdout = original_stdout # Restore stdout for IPC
-
-    try:
-        converter = ArrowConverter()
-        table = converter.convert_to_arrow_table(result)
-        
-        # We don't necessarily need to attach metadata for logs if we streamed them,
-        # but let's attach full buffer just in case.
-        user_stdout = streamer.getvalue()
-        
-        new_metadata = table.schema.metadata or {{}}
-        if user_stdout:
-             new_metadata[b'stdout'] = user_stdout.encode('utf-8')
-        
-        table = table.replace_schema_metadata(new_metadata)
-        
-        # Write schema and batches to stdout buffer
-        with pa.ipc.new_stream(sys.stdout.buffer, table.schema) as writer:
-            writer.write_table(table)
-    except Exception as e:
-        sys.stderr = original_stderr
-        sys.stderr.write(str(e))
-        sys.exit(1)
-"""
-        
-        fd, script_path = tempfile.mkstemp(suffix=".py", prefix="py_ext_")
-        os.write(fd, script_content.encode('utf-8'))
-        os.close(fd)
-        
-        # Capture log_queue from current thread-local storage for use in reader thread
+        # Get active DuckDB context from thread-local storage
+        ctx = getattr(context_storage, "db_conn", None) if context_storage else None
         log_queue = getattr(context_storage, "log_queue", None) if context_storage else None
-
-        try:
-            # Execute subprocess
-            process = subprocess.Popen(
-                [sys.executable, script_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True, # simplify reading strings
-                bufsize=1, # Line buffered
-                env={**os.environ, "PYTHONUNBUFFERED": "1"} # Force unbuffered output
-            )
+        
+        # Custom print function to capture output in real-time
+        def custom_print(*args, **kwargs):
+            sep = kwargs.get('sep', ' ')
+            end = kwargs.get('end', '\n')
+            file = kwargs.get('file', None)
             
-            # Streaming loop (read stderr while process running)
-            # We need to read stdout (IPC) at the end, but stderr continuously
-            # Since subprocess blocks, we can read chunks.
-            # But process.stdout is for IPC table. That appears at END.
+            msg = sep.join(map(str, args)) + end
             
-            # We can spawn a thread to read stderr or just use select/poll.
-            # Thread is easiest for blocking reads.
-            
-            def stderr_reader():
-                 while True:
-                      line = process.stderr.readline()
-                      if not line:
-                          break
-                          
-                      if line.startswith("__STDOUT__:"):
-                          content = line[11:] # remove prefix
-                          # Mirror to terminal
-                          print(content, end="", flush=True)
-                          if log_queue:
-                               log_queue.put(content)
-                      else:
-                          # Normal stderr (or error)
-                          # Mirror to terminal
-                          print(line, end="", file=sys.stderr, flush=True)
-                          if log_queue:
-                               log_queue.put(("[STDERR]: " + line))
-            
-            t_err = threading.Thread(target=stderr_reader)
-            t_err.start()
-            
-            # Main thread waits for process. 
-            # We also need to read stdout? Arrow IPC read waits for stream.
-            arrow_table = None
-            ipc_error = None
-            
-            try:
-                # Open stream reader from stdout
-                # This will BLOCK until script writes IPC or closes.
-                # Meanwhile stderr_reader is streaming logs.
-                reader = pa.ipc.open_stream(process.stdout.buffer) # Use binary buffer for IPC
-                arrow_table = reader.read_all()
-            except Exception as e:
-                ipc_error = e
-
-            process.wait()
-            t_err.join() # Ensure we read all stderr
-            
-            if process.returncode != 0:
-                 # We already streamed stderr line-by-line.
-                 # But we should raise exception to stop execution.
-                 raise RuntimeError(f"Python script exited with code {process.returncode}. See terminal for details.")
-
-            if ipc_error:
-                 if "Empty stream" in str(ipc_error):
-                      pass # Valid if no table returned
-                 else:
-                      raise RuntimeError(f"Error reading IPC: {ipc_error}")
-
-            # Register in DuckDB context
-            if context_storage:
-                ctx = getattr(context_storage, "db_conn", None)
-                if ctx and arrow_table:
-                    try:
-                        ctx.execute(f"DROP VIEW IF EXISTS {name}")
-                        ctx.execute(f"DROP TABLE IF EXISTS {name}")
-                    except:
-                        pass
-                        
-                    ctx.register(name, arrow_table)
-                    
-                    sid = getattr(context_storage, "session_id", "unknown")
-                    logger.info(f"[{sid}] Registered result of '{name}'")
-                    context_storage.has_side_effects = True
-                    
-                    # Log success (streamed)
-                    row_count = arrow_table.num_rows
-                    if hasattr(context_storage, "log_queue") and context_storage.log_queue:
-                         context_storage.log_queue.put(f"\nTable '{name}' registered successfully ({row_count} rows).\n")
-                    
-                    return ""
-            else:
-                 return "-- Error: Context storage not available"
-                
-        except Exception as e:
-            if hasattr(context_storage, "log_queue") and context_storage.log_queue:
-                 context_storage.log_queue.put(f"\n[SYSTEM ERROR]: {e}\n")
-            raise RuntimeError(f"System Error: {e}")
-        finally:
-            if os.path.exists(script_path):
+            if file:
                 try:
-                    os.remove(script_path)
+                    file.write(msg)
                 except:
                     pass
+                return
+
+            if log_queue:
+                # server.py handles strings as 'stdout'
+                log_queue.put(msg)
+            else:
+                # Fallback logging
+                logger.info(f"[USER PRINT]: {msg.strip()}")
+
+        # Ensure imports are available
+        try:
+            import duckdb
+        except ImportError:
+            duckdb = None
+
+        # Build namespace
+        exec_globals = {
+            "ctx": ctx,      # The request: active duckdb connection
+            "duckdb": duckdb, 
+            "pa": pa,
+            "pd": pd,
+            "json": __import__('json'),
+            "datetime": __import__('datetime'),
+            "print": custom_print
+        }
+
+        # 2. Def Function Wrapper
+        # function_def = f"def {func_name}():\n{indented_code}"
         
-        return ""
+        # We use a trick to compile with 'return' allowed: wrap in function
+        script_full = f"""
+def {func_name}():
+{indented_code}
+"""
+        
+        try:
+            # Execute definition to create the function in exec_globals
+            exec(script_full, exec_globals)
+            
+            # Retrieve the function
+            user_func = exec_globals[func_name]
+            
+            # 3. Call Function
+            result = user_func()
+            
+            # If no result returned (implicit None), we assume side-effects only and stop here.
+            if result is None:
+                return ""
+            
+            # 4. Handle Result (Arrow Conversion & Registration)
+            if context_storage and ctx:
+                converter = ArrowConverter()
+                table = None
+                
+                # A. Conversion Phase
+                try:
+                    table = converter.convert_to_arrow_table(result)
+                except Exception as e:
+                     # This is a user-data error (cannot convert what they returned)
+                     if log_queue:
+                         log_queue.put(f"[SYSTEM ERROR]: Failed to convert Python result to Arrow table: {e}\n")
+                     logger.error(f"Failed to convert result: {e}")
+                     return "" # Don't crash, just don't register
+
+                # B. Registration Phase
+                if table:
+                    try:
+                        # Drop existing
+                        try:
+                            ctx.execute(f"DROP VIEW IF EXISTS {name}")
+                            ctx.execute(f"DROP TABLE IF EXISTS {name}")
+                        except:
+                            pass
+                            
+                        # Register New
+                        try:
+                             ctx.register(name, table)
+                        except Exception as reg_err:
+                             # Warning: DuckDB might fail if table has 0 columns
+                             if log_queue:
+                                  log_queue.put(f"[SYSTEM ERROR]: Failed to register result table '{name}' in DuckDB: {reg_err}\n")
+                             raise reg_err
+
+                        sid = getattr(context_storage, "session_id", "unknown")
+                        logger.info(f"[{sid}] Registered result of '{name}'")
+                        context_storage.has_side_effects = True
+                        
+                        row_count = table.num_rows
+                        if log_queue:
+                             log_queue.put(f"\nTable '{name}' registered successfully ({row_count} rows).\n")
+                             
+                    except Exception as e:
+                        # Log but don't crash the server thread if possible, unless critical
+                        logger.error(f"Registration error: {e}")
+            
+            return ""
+
+        except Exception as e:
+            # Runtime error in user code
+            error_msg = str(e)
+            if log_queue:
+                 log_queue.put(("stderr", f"Error executing python block: {error_msg}\n"))
+            logger.error(f"Python execution error: {e}", exc_info=True)
+            # Propagate error to stop execution flow? 
+            # Prefer showing error in log and returning empty string to avoid crushing entire server if possible
+            # But server.py checks for exceptions in render_thread. 
+            # If we raise, server catches it.
+            raise RuntimeError(f"Python Script Error: {e}")

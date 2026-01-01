@@ -1,5 +1,5 @@
 name: sample
-sql: |+
+sql: |
   select * from sys.objects where type='U';
 
   update u set first_name='Timur ğüşiöçĞÜŞİÖÇ' from users u where id = 1;
@@ -20,15 +20,11 @@ sql: |+
 
   DROP TABLE test2;
 
-  {% reader 'test','Local.TestDb', TRUE %}
-  select * from users;
+  {% reader 'sample_user','Local.TestDb', TRUE %}
+  select top 1000 * from users;
   {% endreader %}
 
-  select * from test;
-
-  EXPLAIN select * from test;
-
-  DROP table test;
+  select * from sample_user;
 
   {% python 'doviz' %}
     import requests
@@ -101,6 +97,14 @@ sql: |+
   return kitaplar
   {% endpython %}
 
-
+  {% python %}
+  # Mevcut duckdb session'ı üzerinden sorgu çalıştırma
+  # ctx değişkeni otomatik olarak mevcuttur
+  res = ctx.sql("SELECT * FROM sample_user WHERE id > 5")
+  # Ekrana yazdırma (UI loglarına düşer)
+  print(f"Bulunan kayıt sayısı: {res.count('*').fetchone()[0]}")
+  # Sonucu döndürme (bu tablo 'my_result' olarak DataFusion/DuckDB'ye kaydedilir)
+  # return res
+  {% endpython %}
 variables: []
-connectionId: "1"
+connectionId: default
