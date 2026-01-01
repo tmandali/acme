@@ -171,7 +171,9 @@ export function ResultsTableGlide({
         toast.info("CSV dışa aktarma büyük veri setleri için hazırlanıyor...");
     }, []);
 
-    if (isLoading && rowCount === 0) {
+    const isPythonScript = executedQuery && /\{%\s*python/i.test(executedQuery);
+
+    if (isLoading && rowCount === 0 && !isPythonScript) {
         return (
             <div className="h-full flex flex-col items-center justify-center bg-background">
                 <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
@@ -217,13 +219,56 @@ export function ResultsTableGlide({
     // Check for single-row message (e.g. from Reader extension or Python script stdout)
     const isSingleRowMessage = !isLoading && queryStatus === 'completed' && rowCount === 1 && columns.length === 1 && columns[0].title === "Result";
 
-    if ((!isLoading && queryStatus === 'completed' && rowCount === 0) || isSingleRowMessage) {
+    // Check for Log Streaming Mode (stream_type, stream_content)
+    // We allow isLoading here to support real-time updates
+    // Also default to log stream view if it's a python script loading (to show terminal immediately)
+    const isLogStream = (columns.length === 2 && (columns[0].title === "stream_type" || columns[0].title === "stream_content")) || (isLoading && isPythonScript);
+
+    if ((!isLoading && queryStatus === 'completed' && rowCount === 0) || isSingleRowMessage || isLogStream) {
         const isReaderQuery = executedQuery && /\{%\s*reader/i.test(executedQuery);
 
         let successTitle = "Sorgu Başarıyla Çalıştırıldı";
         let successDesc = "İşlem tamamlandı, dönecek veri yok.";
 
-        if (isSingleRowMessage) {
+        if (isLogStream) {
+            // Aggregate all log content
+            let logContent = "";
+            let hasError = false;
+
+            for (const batch of results) {
+                if ('numRows' in batch) {
+                    // Arrow RecordBatch
+                    const recordBatch = batch as RecordBatch;
+                    const typeCol = recordBatch.getChildAt(0);
+                    const contentCol = recordBatch.getChildAt(1);
+
+                    if (typeCol && contentCol) {
+                        for (let i = 0; i < recordBatch.numRows; i++) {
+                            const type = String(typeCol.get(i));
+                            const content = String(contentCol.get(i));
+
+                            if (type === 'stderr' || type.includes('ERROR')) {
+                                hasError = true;
+                            }
+                            logContent += content;
+                        }
+                    }
+                } else {
+                    // Fallback for array objects if any
+                    const rows = batch as any[];
+                    for (const row of rows) {
+                        const content = row.stream_content || row.result || "";
+                        logContent += content;
+                        if (row.stream_type === 'stderr') hasError = true;
+                    }
+                }
+            }
+            successDesc = logContent;
+            // Determine status based on content or parsed error
+            // (If truly failed, the backend might have thrown Error which catches above, 
+            // but for partial logs or soft errors we show them here)
+
+        } else if (isSingleRowMessage) {
             // Extract message from the single cell
             if (results.length > 0 && 'numRows' in results[0]) {
                 const batch = results[0] as RecordBatch;
@@ -241,17 +286,26 @@ export function ResultsTableGlide({
             successDesc = `Sorgulamak için 'SELECT * FROM ${tableName}' yazın.`;
         }
 
-        // If it's a script output (SingleRowMessage), show Terminal View
-        if (isSingleRowMessage) {
+        // If it's a script output (SingleRowMessage) or Log Stream, show Terminal View
+        if (isSingleRowMessage || isLogStream) {
             return (
                 <div className="h-full flex flex-col items-center justify-start items-stretch bg-background p-0">
                     <div className="flex-1 w-full bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-100 font-mono text-xs overflow-hidden flex flex-col border-t border-zinc-200 dark:border-zinc-800">
                         {/* Status Bar (Header) */}
                         <div className="flex items-center justify-between px-3 h-8 border-b border-zinc-200 dark:border-zinc-800 bg-muted/30 backdrop-blur-sm sticky top-0 z-10 select-none">
                             <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                                <span className="text-emerald-600 dark:text-emerald-500 font-bold">STATUS: SUCCESS</span>
-                                <span>•</span>
-                                <span>EXIT CODE: 0</span>
+                                {isLoading ? (
+                                    <>
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                        <span className="text-blue-600 dark:text-blue-500 font-bold">STATUS: RUNNING...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span className="text-emerald-600 dark:text-emerald-500 font-bold">STATUS: SUCCESS</span>
+                                        <span>•</span>
+                                        <span>EXIT CODE: 0</span>
+                                    </>
+                                )}
                             </div>
                             {executionTime !== undefined && (
                                 <span className="text-[10px] text-muted-foreground">DURATION: {formatTime(executionTime)}</span>

@@ -10,6 +10,9 @@ from datetime import datetime
 from dataclasses import asdict
 from jinja2 import Environment, FileSystemLoader
 from faker import Faker
+import queue
+import threading
+import io
 
 from .models import QueryCommand, SqlWrapper, TemplateMetadata
 from .reader_extensions import ReaderExtension, context_storage
@@ -654,7 +657,225 @@ class StreamFlightServer(pa.flight.FlightServerBase):
             # we might want to let it fail in do_get, but for now reporting error is safer.
             raise pa.flight.FlightServerError(f"Error: {e}")
 
+    def do_get(self, context, ticket):
+        query = ticket.ticket.decode('utf-8')
+        
+        # Parse ticket (JSON or plain text)
+        try:
+            request_data = json.loads(query)
+            
+            # Check if it looks like our command structure
+            if isinstance(request_data, dict) and 'query' in request_data:
+                 query_sql = request_data.get('query', '')
+                 criteria = request_data.get('criteria', {})
+                 # Handle mixed case keys (frontend sends camelCase, internal might be snake_case)
+                 connection_id = request_data.get('connectionId') or request_data.get('connection_id')
+                 session_id = request_data.get('sessionId') or request_data.get('session_id')
+            else:
+                 # Valid JSON but not our expected object (e.g. plain string "SELECT...")
+                 if isinstance(request_data, str):
+                     query_sql = request_data
+                 else:
+                     query_sql = query # parsing artifact? fallback to raw
+                 
+                 connection_id = None
+                 session_id = None
+        except:
+             # Not JSON, treat as plain text SQL
+             query_sql = query
+             connection_id = None
+             session_id = None
 
+        if not session_id:
+             # Try header if not in ticket
+             try:
+                 # Check if invocation_metadata exists and is callable
+                 if hasattr(context, 'invocation_metadata'):
+                     headers = {k.lower(): v for k, v in context.invocation_metadata()}
+                     session_id = headers.get('x-session-id', 'default')
+                 else:
+                     # Fallback or try other attributes?
+                     # Debugging: Log what's available
+                     logger.warning(f"ServerCallContext has no invocation_metadata. Dir: {dir(context)}")
+                     session_id = 'default'
+             except Exception as e:
+                 logger.warning(f"Failed to access context headers: {e}")
+                 session_id = 'default'
+
+        
+        # Ensure session and get connection
+        db_conn = self._get_session_context(session_id)
+        
+        # Setup context storage
+        context_storage.db_conn = db_conn
+        context_storage.connection_map = self.connection_map
+        context_storage.session_id = session_id
+        context_storage.python_stdout = ""
+        context_storage.has_side_effects = False
+        
+        # Setup Log Streaming Queue
+        log_queue = queue.Queue()
+        context_storage.log_queue = log_queue
+
+        # Result container for thread
+        render_result = {"sql": None, "error": None}
+        
+        # Construct Command Object for _render_query
+        cmd = QueryCommand(
+            template="", # No template for direct query
+            query=query_sql,
+            criteria=criteria,
+            session_id=session_id,
+            connection_id=connection_id
+        )
+
+        def render_thread_target():
+            try:
+                # Initialize thread-local context for this new thread
+                context_storage.log_queue = log_queue
+                
+                # Render Jinja (Runs python blocks which create logs)
+                # Use db_conn from closure, not context_storage (which is empty here initially)
+                render_result["sql"] = self._render_query(cmd, db_conn)
+            except Exception as e:
+                render_result["error"] = e
+            finally:
+                # Signal done
+                log_queue.put(None)
+
+        # Start rendering in background thread
+        t = threading.Thread(target=render_thread_target)
+        t.start()
+        
+        # Wait for the first signal (Log or Done)
+        # This decides our Schema strategy
+        first_item = log_queue.get()
+        
+        # Define Log Schema
+        log_schema = pa.schema([
+            pa.field("stream_type", pa.string()),
+            pa.field("stream_content", pa.string())
+        ])
+
+        if first_item is not None:
+            # OPTION 1: LOG STREAMING MODE
+            # We have logs/output from script. 
+            # We MUST use log_schema for the entire stream to avoid mixed-schema crash.
+            # If there is a final SQL result later, we have to convert it to text/log.
+            
+            def log_generator():
+                # Yeild the first item we already popped
+                item = first_item
+                while item is not None:
+                    s_type = "stdout"
+                    s_content = item
+                    if isinstance(item, tuple):
+                         s_type, s_content = item
+
+                    batch = pa.RecordBatch.from_pydict({
+                        "stream_type": [s_type],
+                        "stream_content": [s_content]
+                    }, schema=log_schema)
+                    yield batch
+                    
+                    # Fetch next
+                    item = log_queue.get()
+                
+                # Check render errors
+                t.join()
+                if render_result["error"]:
+                     # We can yield error as a log or raise
+                     # Raising here might break the stream mid-flight, usually preferred to show error
+                     error_msg = f"\n[RENDER ERROR]: {render_result['error']}"
+                     yield pa.RecordBatch.from_pydict({
+                        "stream_type": ["stderr"],
+                        "stream_content": [error_msg]
+                     }, schema=log_schema)
+                     return
+
+                # Check if there is SQL to execute
+                final_sql = render_result["sql"]
+                is_empty_query = not final_sql or not final_sql.strip() or all(line.strip().startswith("--") for line in final_sql.splitlines())
+                
+                if not is_empty_query:
+                    try:
+                        # Convert result to text/csv to display in terminal
+                        arrow_result = context_storage.db_conn.execute(final_sql).arrow()
+                        # Simple summary or CSV representation
+                        summary = f"\n[SQL RESULT]: {arrow_result.num_rows} rows returned.\n"
+                        # Maybe simplified display for small results?
+                        if arrow_result.num_rows < 50:
+                            summary += arrow_result.to_pandas().to_string()
+                        else:
+                            summary += "(Result too large for terminal view, run SQL separately for Grid View)"
+                            
+                        yield pa.RecordBatch.from_pydict({
+                            "stream_type": ["system"],
+                            "stream_content": [summary]
+                        }, schema=log_schema)
+                    except Exception as e:
+                         error_msg = f"\n[SQL ERROR]: {e}"
+                         yield pa.RecordBatch.from_pydict({
+                            "stream_type": ["stderr"],
+                            "stream_content": [error_msg]
+                         }, schema=log_schema)
+            
+            return pa.flight.GeneratorStream(log_schema, log_generator())
+        
+        else:
+            # OPTION 2: DATA GRID MODE (Normal)
+            # No logs appeared during render (or it finished instantly empty).
+            t.join()
+            if render_result["error"]:
+                 raise render_result["error"]
+            
+            final_sql = render_result["sql"]
+            is_empty_query = not final_sql or not final_sql.strip() or all(line.strip().startswith("--") for line in final_sql.splitlines())
+            
+            if is_empty_query:
+                # Just return a simple success message (single cell table)
+                # But we must return a Stream.
+                success_schema = pa.schema([("Result", pa.string())])
+                def success_gen():
+                    msg = "İşlem başarıyla tamamlandı."
+                    if hasattr(context_storage, "python_stdout") and context_storage.python_stdout:
+                        msg = context_storage.python_stdout
+                    yield pa.RecordBatch.from_pydict({"Result": [msg]}, schema=success_schema)
+                
+                return pa.flight.GeneratorStream(success_schema, success_gen())
+            
+            # Execute SQL and stream real results
+            # Check for external connection first
+            if cmd.connection_id and cmd.connection_id != "default":
+                target_conn = self.connections.get(str(cmd.connection_id))
+                if target_conn:
+                    logger.info(f"Executing rendered query on connection {cmd.connection_id}")
+                    # _execute_on_external returns a RecordBatchStream which is a FlightDataStream
+                    return self._execute_on_external(target_conn, final_sql)
+                else:
+                    logger.warning(f"Connection ID {cmd.connection_id} not found. Falling back to default session.")
+
+            try:
+                # Use DuckDB streaming execution
+                rel = context_storage.db_conn.sql(final_sql)
+                
+                if rel is None:
+                    # DDL returned no relation
+                    batch = pa.RecordBatch.from_arrays(
+                         [pa.array(["İşlem başarıyla tamamlandı."])],
+                         names=["Result"]
+                     )
+                    reader = pa.RecordBatchReader.from_batches(batch.schema, [batch])
+                    return pa.flight.RecordBatchStream(reader)
+
+                reader = rel.fetch_arrow_reader(batch_size=1024)
+                return pa.flight.RecordBatchStream(reader)
+                
+            except Exception as e:
+                logger.error(f"Error executing SQL: {e}")
+                raise e
+            finally:
+                context_storage.log_queue = None
 
     def do_action(self, context, action):
         if action.type == "get_schema":
