@@ -177,6 +177,34 @@ class ReaderExtension {
 }
 (nunjucksEnv as any).addExtension('ReaderExtension', new ReaderExtension());
 
+// Python etiketi için dummy extension (Frontend tarafında hata almamak için)
+class PythonExtension {
+  tags = ['python'];
+  parse(parser: any, nodes: any) {
+    const tok = parser.nextToken();
+
+    // Argümanları parse etmek yerine, blok bitimine kadar olan her şeyi tüket.
+    let peek = parser.peekToken();
+    while (peek && peek.type !== 'block_end' && peek.type !== 'block-end') {
+      parser.nextToken();
+      peek = parser.peekToken();
+    }
+
+    // Blok bitişini (%}) manual olarak tüket
+    if (peek && (peek.type === 'block_end' || peek.type === 'block-end')) {
+      parser.nextToken();
+    }
+
+    const body = parser.parseUntilBlocks('endpython');
+    parser.advanceAfterBlockEnd();
+    return new nodes.CallExtension(this, 'run', null, [body]);
+  }
+  run(_context: any) {
+    return ""; // Frontend'de içeriği gösterme (Backend'de işlenecek)
+  }
+}
+(nunjucksEnv as any).addExtension('PythonExtension', new PythonExtension());
+
 // Değerin bir aralık nesnesi olup olmadığını kontrol et
 const isRange = (val: any) => val && typeof val === 'object' && ('start' in val || 'begin' in val);
 

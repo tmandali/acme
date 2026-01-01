@@ -12,7 +12,8 @@ from jinja2 import Environment, FileSystemLoader
 from faker import Faker
 
 from .models import QueryCommand, SqlWrapper, TemplateMetadata
-from .jinja_extensions import ReaderExtension, context_storage
+from .reader_extensions import ReaderExtension, context_storage
+from .py_extensions import PythonExtension
 from .filters import (
     filter_quote, filter_sql, filter_between, filter_eq, filter_add_days,
     filter_gt, filter_lt, filter_gte, filter_lte, filter_ne, filter_like,
@@ -317,7 +318,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
     def _setup_jinja(self):
         self.jinja_env = Environment(
             loader=FileSystemLoader([str(d) for d in self.query_dirs]),
-            extensions=[ReaderExtension]
+            extensions=[ReaderExtension, PythonExtension]
         )
         # Shared utilities
         self.jinja_env.globals["now"] = datetime.now().strftime("%Y%m%d")

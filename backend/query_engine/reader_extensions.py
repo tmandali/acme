@@ -6,6 +6,7 @@ import pyarrow as pa
 from jinja2 import nodes
 from jinja2.ext import Extension
 from urllib.parse import urlparse, unquote
+import textwrap
 
 logger = logging.getLogger("StreamFlightServer")
 
@@ -227,3 +228,6 @@ class ReaderExtension(Extension):
                     if alt_path.exists():
                         db_path = alt_path
         return db_path
+
+
+

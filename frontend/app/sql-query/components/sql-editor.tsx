@@ -161,9 +161,132 @@ const AceEditor = dynamic(
     };
     oop.inherits(CustomSqlHighlightRules, SqlHighlightRules);
 
+    // Custom Folding Mode 
+    const SqlFoldMode = new SqlMode().foldingRules ? new SqlMode().foldingRules.constructor : aceBuilds.require("ace/mode/folding/fold_mode").FoldMode;
+    const Range = aceBuilds.require("ace/range").Range;
+
+    const CustomFoldMode = function (this: any) {
+      if (SqlFoldMode) {
+        SqlFoldMode.call(this);
+      }
+    };
+    oop.inherits(CustomFoldMode, SqlFoldMode);
+
+    (function (this: any) {
+      this.getFoldWidget = function (session: any, foldStyle: any, row: any) {
+        const line = session.getLine(row);
+
+        // Jinja Start Check
+        if (/\{%\s*(python|reader)\b/.test(line)) {
+          if (!/\{%\s*end(python|reader)\b/.test(line)) {
+            return "start";
+          }
+        }
+
+        // Jinja End Check
+        if (/\{%\s*end(python|reader)\b/.test(line)) {
+          return "end";
+        }
+
+        // SQL Statement Start Check (Top-level only heuristic)
+        if (/^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|WITH|EXPLAIN|TRUNCATE)\b/i.test(line)) {
+          // Check if it's a single line statement (ends with semicolon on the same line)
+          // This prevents folding arrows for one-liners like "SELECT * FROM table;"
+          const tokens = session.getTokens(row);
+          for (const token of tokens) {
+            if (token.value === ";") {
+              if (!token.type.includes("comment") && !token.type.includes("string")) {
+                return "";
+              }
+            }
+          }
+          return "start";
+        }
+
+        // Fallback to parent
+        if (SqlFoldMode.prototype.getFoldWidget) {
+          return SqlFoldMode.prototype.getFoldWidget.call(this, session, foldStyle, row);
+        }
+        return "";
+      };
+
+      this.getFoldWidgetRange = function (session: any, foldStyle: any, row: any, forceMultiline: any) {
+        const line = session.getLine(row);
+
+        // 1. Jinja Block Folding
+        const match = line.match(/\{%\s*(python|reader)\b/);
+
+        if (match) {
+          const tagName = match[1];
+          const endTagRegex = new RegExp(`\\{%\\s*end${tagName}\\b`);
+
+          let depth = 1;
+          const maxRow = session.getLength();
+
+          for (let i = row + 1; i < maxRow; i++) {
+            const l = session.getLine(i);
+            if (new RegExp(`\\{%\\s*${tagName}\\b`).test(l)) {
+              depth++;
+            }
+            if (endTagRegex.test(l)) {
+              depth--;
+              if (depth === 0) {
+                const endTagPos = l.search(endTagRegex);
+                // Fold from end of start line to beginning of end tag
+                return new Range(row, line.length, i, endTagPos);
+              }
+            }
+          }
+        }
+
+        // 2. SQL Statement Folding
+        const sqlMatch = line.match(/^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|WITH|EXPLAIN|TRUNCATE)\b/i);
+        if (sqlMatch && !line.trim().startsWith("{%")) {
+          const maxRow = session.getLength();
+          let endRow = -1;
+          let endCol = -1;
+
+          outerLoop:
+          for (let i = row; i < maxRow; i++) {
+            const tokens = session.getTokens(i);
+            let col = 0;
+            for (const token of tokens) {
+              const val = token.value;
+              if (val === ";") {
+                const type = token.type;
+                if (type.indexOf("comment") === -1 && type.indexOf("string") === -1) {
+                  endRow = i;
+                  endCol = col + val.length;
+                  break outerLoop;
+                }
+              }
+              col += val.length;
+            }
+          }
+
+          // If no semicolon found, fold to end of file
+          if (endRow === -1) {
+            endRow = maxRow - 1;
+            endCol = session.getLine(endRow).length;
+          }
+
+          // Prevent folding if range is invalid or empty
+          if (endRow > row || (endRow === row && endCol > line.length)) {
+            return new Range(row, line.length, endRow, endCol);
+          }
+        }
+
+        if (SqlFoldMode.prototype.getFoldWidgetRange) {
+          return SqlFoldMode.prototype.getFoldWidgetRange.call(this, session, foldStyle, row, forceMultiline);
+        }
+        return null;
+      };
+    }).call(CustomFoldMode.prototype);
+
     const CustomSqlMode = function (this: any) {
       SqlMode.call(this);
       this.HighlightRules = CustomSqlHighlightRules;
+      this.foldingRules = new (CustomFoldMode as any)();
     };
     oop.inherits(CustomSqlMode, SqlMode);
 
@@ -223,6 +346,12 @@ export const SQLEditor = forwardRef<SQLEditorRef, SQLEditorProps>(function SQLEd
 }, ref) {
   const editorInstanceRef = useRef<any>(null)
 
+  // Use a ref to store the latest query for the gutter click handler
+  const queryRef = useRef(query);
+  useEffect(() => {
+    queryRef.current = query;
+  }, [query]);
+
   // Expose focus method via ref
   useImperativeHandle(ref, () => ({
     focus: () => {
@@ -231,6 +360,139 @@ export const SQLEditor = forwardRef<SQLEditorRef, SQLEditorProps>(function SQLEd
       }
     }
   }))
+
+  // Helper to find block range (reusing logic conceptually from FoldMode)
+  const getBlockRange = (session: any, row: number) => {
+    const line = session.getLine(row);
+    let startRow = row;
+    let endRow = row;
+
+    // 1. Jinja Block
+    const jinjaMatch = line.match(/\{%\s*(python|reader)\b/);
+    if (jinjaMatch) {
+      const tagName = jinjaMatch[1];
+      const endTagRegex = new RegExp(`\\{%\\s*end${tagName}\\b`);
+      let depth = 1;
+      for (let i = row + 1; i < session.getLength(); i++) {
+        const l = session.getLine(i);
+        if (new RegExp(`\\{%\\s*${tagName}\\b`).test(l)) depth++;
+        if (endTagRegex.test(l)) {
+          depth--;
+          if (depth === 0) {
+            endRow = i;
+            return { start: startRow, end: endRow };
+          }
+        }
+      }
+      return { start: startRow, end: session.getLength() - 1 }; // Fallback
+    }
+
+    // 2. SQL Block
+    if (/^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|WITH|EXPLAIN|TRUNCATE)\b/i.test(line)) {
+      // Scan for semicolon
+      for (let i = row; i < session.getLength(); i++) {
+        const tokens = session.getTokens(i);
+        for (const token of tokens) {
+          if (token.value === ";") {
+            if (!token.type.includes("comment") && !token.type.includes("string")) {
+              endRow = i;
+              return { start: startRow, end: endRow };
+            }
+          }
+        }
+      }
+      return { start: startRow, end: session.getLength() - 1 };
+    }
+
+    return null;
+  };
+
+  // Decoration logic
+  const updateDecorations = useCallback(() => {
+    const editor = editorInstanceRef.current;
+    if (!editor) return;
+
+    const session = editor.getSession();
+    const len = session.getLength();
+
+    // Clear existing decorations
+    for (let i = 0; i < len; i++) {
+      session.removeGutterDecoration(i, "ace_runnable_line");
+    }
+
+    for (let i = 0; i < len; i++) {
+      const line = session.getLine(i);
+      let isRunnable = false;
+
+      // Jinja Check
+      if (/\{%\s*(python|reader)\b/.test(line) && !/\{%\s*end(python|reader)\b/.test(line)) {
+        isRunnable = true;
+      }
+      // SQL Check
+      else if (/^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|WITH|EXPLAIN|TRUNCATE)\b/i.test(line)) {
+        // Check if single line with semicolon (skip decoration if we want, or keep it?)
+        // User 'tek satır ise katlama bloğu yok' dedi, but for running it might be useful?
+        // Let's allow running even single lines for convenience.
+        isRunnable = true;
+      }
+
+      if (isRunnable) {
+        session.addGutterDecoration(i, "ace_runnable_line");
+      }
+    }
+  }, []);
+
+  // Gutter Click Handler
+  const onGutterClick = useCallback((e: any) => {
+    const editor = editorInstanceRef.current;
+    if (!editor) return;
+
+    let target = e.domEvent.target;
+
+    // If text node, move up to parent
+    if (target.nodeType === 3) target = target.parentNode;
+
+    // Ignore clicks on fold widgets (let them toggle fold)
+    if (target.classList.contains("ace_fold-widget")) return;
+
+    // Check if we are inside a gutter cell
+    const cell = target.closest(".ace_gutter-cell");
+    if (!cell) return;
+
+    // Check if it's our runnable line
+    if (!cell.classList.contains("ace_runnable_line")) return;
+
+    // Removed isFocused check to ensure click always works
+
+    const row = e.getDocumentPosition().row;
+    const session = editor.getSession();
+
+    const range = getBlockRange(session, row);
+    if (range) {
+      const lines = session.getLines(range.start, range.end);
+      const blockContent = lines.join("\n");
+      if (blockContent.trim()) {
+        onRunQuery(blockContent);
+        e.stop(); // Prevent default breakpoint toggling etc.
+      }
+    }
+  }, [onRunQuery]);
+
+  useEffect(() => {
+    updateDecorations();
+  }, [query, updateDecorations]);
+
+  // Bind gutter click event listener dynamically to handle prop updates (like active connection)
+  useEffect(() => {
+    const editor = editorInstanceRef.current;
+    if (!editor) return;
+
+    editor.on("guttermousedown", onGutterClick);
+    return () => {
+      editor.off("guttermousedown", onGutterClick);
+    };
+  }, [onGutterClick]);
+
 
   // Update the global schema reference for the Ace completer
   useEffect(() => {
@@ -278,6 +540,7 @@ export const SQLEditor = forwardRef<SQLEditorRef, SQLEditorProps>(function SQLEd
         <AceEditor
           onLoad={(editor) => {
             editorInstanceRef.current = editor
+            updateDecorations();
           }}
           mode="sql_nunjucks"
 
@@ -314,6 +577,20 @@ export const SQLEditor = forwardRef<SQLEditorRef, SQLEditorProps>(function SQLEd
             background: "transparent",
           }}
         />
+
+        <style jsx global>{`
+          .ace_gutter-cell.ace_runnable_line {
+             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23059669'%3E%3Cpath d='M8 5v14l11-7z'/%3E%3C/svg%3E");
+             background-repeat: no-repeat;
+             background-position: 4px center;
+             background-size: 14px;
+             cursor: pointer;
+          }
+          .ace_gutter-cell.ace_runnable_line:hover {
+             background-color: rgba(16, 185, 129, 0.15) !important;
+             border-left: 2px solid #059669;
+          }
+        `}</style>
 
         {/* Run / Cancel Button */}
         <div className="absolute right-4 bottom-4">

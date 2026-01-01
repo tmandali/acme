@@ -1,12 +1,12 @@
 name: sample
 sql: |+
-  select * from sys.objects
+  select * from sys.objects where type='U';
 
-  update u set first_name='Timur ğüşiöçĞÜŞİÖÇ' from users u where id = 1
+  update u set first_name='Timur ğüşiöçĞÜŞİÖÇ' from users u where id = 1;
 
-  select * from users
+  select * from users;
 
-  select * from sqlite_master
+  select * from sqlite_master;
 
   SELECT 
       table_catalog, 
@@ -14,20 +14,88 @@ sql: |+
       table_name, 
       table_type 
   FROM information_schema.tables 
-  WHERE table_schema = 'public'
+  WHERE table_schema = 'public';
 
   CREATE TABLE test2(id int);
+
   DROP TABLE test2;
 
   {% reader 'test','Local.TestDb', TRUE %}
-  select * from users
+  select * from users;
   {% endreader %}
 
-  EXPLAIN select * from test
+  EXPLAIN select * from test;
 
-  DROP table test
+  DROP table test;
 
+  {% python 'doviz' %}
+    import requests
+    import xml.etree.ElementTree as ET
+    url = "https://www.tcmb.gov.tr/kurlar/today.xml"
+      
+    # 1. XML verisini internetten çekiyoruz
+    response = requests.get(url)
+    response.raise_for_status() # Hata kontrolü (Bağlantı sorunu varsa hata verir)
+
+    # 2. XML içeriğini parçalıyoruz (Parse ediyoruz)
+    root = ET.fromstring(response.content)
+    
+    doviz_listesi = []
+
+    # 3. XML içindeki her bir 'Currency' (Döviz) etiketini geziyoruz
+    for currency in root.findall('Currency'):
+        # Verileri temizleyerek alıyoruz (Boşlukları siliyoruz)
+        kod = currency.get('CurrencyCode') # Örn: USD, EUR
+        isim = currency.find('Isim').text
+        alis = currency.find('ForexBuying').text
+        satis = currency.find('ForexSelling').text
+
+        # Sadece geçerli döviz koduna sahip olanları listeye ekleyelim
+        if kod:
+            doviz_verisi = {
+                "kod": kod,
+                "isim": isim.strip(),
+                "alis": float(alis) if alis else 0.0,
+                "satis": float(satis) if satis else 0.0
+            }
+            doviz_listesi.append(doviz_verisi)
+
+    return doviz_listesi
+  {% endpython %}
+
+  select * from doviz;
+
+  {% python name='kitap_listesi' %}
+  import time
+  # 1. Adım: Ekrana bir mesaj yazdırıyoruz
+  print("Mesaj gönderildi. 5 saniye bekleniyor...")
+  # 2. Adım: Programı 5 saniye boyunca duraklatıyoruz
+  time.sleep(5)
+  # 3. Adım: Bekleme süresi bittikten sonra yapılacak işlem
+  print("Bekleme süresi bitti, program devam ediyor!")
+  kitaplar = [
+      {
+          "id": 1,
+          "baslik": "Nutuk",
+          "yazar": "Mustafa Kemal Atatürk",
+          "sayfa_sayisi": 600
+      },
+      {
+          "id": 2,
+          "baslik": "İnce Memed",
+          "yazar": "Yaşar Kemal",
+          "sayfa_sayisi": 436
+      },
+      {
+          "id": 3,
+          "baslik": "Kürk Mantolu Madonna",
+          "yazar": "Sabahattin Ali",
+          "sayfa_sayisi": 160
+      }
+  ]
+  return kitaplar
+  {% endpython %}
 
 
 variables: []
-connectionId: default
+connectionId: "1"
