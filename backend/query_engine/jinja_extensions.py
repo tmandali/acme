@@ -91,6 +91,9 @@ class ReaderExtension(Extension):
                 pass
 
             batches = []
+            
+            is_inference = getattr(context_storage, "is_schema_inference", False)
+            
             while True:
                 rows = cursor.fetchmany(10000) # Increased batch size for efficiency
                 if not rows:
@@ -102,6 +105,10 @@ class ReaderExtension(Extension):
                     names=normalized_field_names
                 )
                 batches.append(batch)
+                
+                if is_inference:
+                     # Stop after first batch if we only need schema
+                     break
             
             conn.close()
 
@@ -143,14 +150,19 @@ class ReaderExtension(Extension):
                 start_path = str(tmp_path).replace("'", "''")
                 ctx.execute(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM '{start_path}'")
                 
-                msg = f"Cached '{name}' to disk: {tmp_path}"
+                sid = getattr(context_storage, "session_id", "unknown")
+                msg = f"[{sid}] Cached '{name}' to disk: {tmp_path}"
                 logger.info(msg)
                 return f"-- {msg}" # Return as comment so it might be visible if we parse comments
             else:
                 # Register in-memory (Zero-copy)
                 table = pa.Table.from_batches(batches)
                 ctx.register(name, table)
-                logger.info(f"Dynamically registered table '{name}' in-memory with {len(batches)} batches")
+                sid = getattr(context_storage, "session_id", "unknown")
+                if is_inference:
+                    logger.info(f"[{sid}] Schema-only registration for '{name}' (1 batch)")
+                else: 
+                    logger.info(f"[{sid}] Dynamically registered table '{name}' in-memory with {len(batches)} batches")
                 return "" 
                 
         except Exception as e:

@@ -122,7 +122,7 @@ export function useQueryExecution({ variables, sessionId }: UseQueryExecutionPro
             abortControllerRef.current = null
         }
         return { success: true }
-    }, [isLoading, variables, processQuery])
+    }, [isLoading, variables, processQuery, sessionId])
 
     const handleCancelQuery = useCallback(() => {
         if (abortControllerRef.current) {

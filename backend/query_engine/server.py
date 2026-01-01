@@ -478,6 +478,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         # global environment variables would be overwritten.
         context_storage.db_conn = ctx
         context_storage.connection_map = self.connection_map
+        context_storage.session_id = cmd.session_id
         
         criteria = {k: SqlWrapper(v, k, jinja_env=self.jinja_env) for k, v in cmd.criteria.items()}
         
@@ -532,7 +533,13 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                 )
         
         ctx = self._get_session_context(cmd.session_id)
-        sql = self._render_query(cmd, ctx)
+        
+        # Optimize: Tell extensions we only need schema
+        context_storage.is_schema_inference = True
+        try:
+            sql = self._render_query(cmd, ctx)
+        finally:
+            context_storage.is_schema_inference = False
         
         if not sql or not sql.strip():
             # User likely only used {% reader %} or {% macro %} blocks without a query
@@ -602,7 +609,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                     -1
                 )
         except Exception as e:
-            logger.error(f"Schema inference failed for session {cmd.session_id}. SQL:\n{sql}")
+            logger.error(f"Schema inference failed for session {cmd.session_id}. Error: {e}. SQL:\n{sql}", exc_info=True)
             # If planning fails (e.g. table doesn't exist yet but will be created), 
             # we might want to let it fail in do_get, but for now reporting error is safer.
             raise pa.flight.FlightServerError(f"Error: {e}")
