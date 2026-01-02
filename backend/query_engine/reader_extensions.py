@@ -49,10 +49,10 @@ class ReaderExtension(Extension):
         ).set_lineno(lineno)
 
     def _register(self, *args, caller):
+        logger.info(f"Reader tag registered with args: {args}")
         if len(args) < 2:
             return "-- Error: Reader tag requires table_name and connection_string"
         
-        name, conn_str = args[0], args[1]
         name, conn_str = args[0], args[1]
         # User requested no quoted usage. We expect booleans (TRUE/FALSE globals).
         use_parquet = bool(args[2]) if len(args) > 2 else False
@@ -77,10 +77,22 @@ class ReaderExtension(Extension):
                 conn_str = conn_map[conn_str]
             else:
                 # Try case-insensitive match
-                for name, cstr in conn_map.items():
-                    if name.lower() == conn_str.lower():
-                        conn_str = cstr
-                        break
+                # Try case-insensitive match using SQLite COLLATE NOCASE
+                try:
+                    with sqlite3.connect("data.db") as mconn:
+                        res = mconn.execute("SELECT connection_string FROM _meta_connections WHERE name = ? COLLATE NOCASE", (conn_str,)).fetchone()
+                        if res:
+                            conn_str = res[0]
+                except Exception as e:
+                    logger.warning(f"DB lookup failed: {e}")
+                
+                # Check if we resolved it, if not, maybe it wasn't in DB or DB failed (fallback optional or check map for consistency)
+                # If we didn't find it in DB, we could try the loop as a last resort fallback
+                if "://" not in conn_str:
+                    for conn_name, cstr in conn_map.items():
+                        if conn_name.lower() == conn_str.lower():
+                            conn_str = cstr
+                            break
 
         try:
             if conn_str.startswith("mssql://"):
