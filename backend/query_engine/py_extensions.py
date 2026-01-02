@@ -134,10 +134,13 @@ class ArrowConverter:
             return pa.schema([])
         
         # Collect all unique field names
-        field_names = set()
+        # Collect all unique field names, preserving order
+        field_names = {}
         for record in records[:100]:  # Sample first 100 records for schema inference
             if isinstance(record, dict):
-                field_names.update(record.keys())
+                for key in record.keys():
+                    if key not in field_names:
+                        field_names[key] = True
             else:
                  # Handle non-dict records if possible? 
                  # For now assuming list of dicts. If list of primitives, this will fail.
@@ -148,7 +151,7 @@ class ArrowConverter:
              return pa.schema([('value', self._infer_arrow_type(records[:100]))])
 
         fields = []
-        for field_name in sorted(field_names):
+        for field_name in field_names:
             # Sample values for type inference
             sample_values = []
             for record in records[:100]:
