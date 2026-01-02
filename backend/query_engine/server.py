@@ -103,23 +103,42 @@ class StreamFlightServer(pa.flight.FlightServerBase):
 
     def do_get(self, context, ticket):
         try:
-            cmd = QueryCommand.from_json(ticket.ticket.decode())
+            # 1. Parse Ticket
+            raw_ticket = ticket.ticket.decode('utf-8')
+            try:
+                ticket_json = json.loads(raw_ticket)
+                cmd = QueryCommand.from_json(raw_ticket)
+            except Exception:
+                # Handle old-style or raw text tickets gracefully if needed, or error out
+                logger.warning(f"Failed to parse ticket as JSON: {raw_ticket[:50]}...")
+                # Fallbck: assume it's just SQL text for default session
+                cmd = QueryCommand(query=raw_ticket, session_id="default", criteria={})
             
-            # Always Initialize Session Context First
-            # This is required for Jinja rendering (ReaderExtension needs ctx)
+            # 2. Get Session Context
+            if not cmd.session_id:
+                cmd.session_id = "default"
+            
             ctx = self._get_session_context(cmd.session_id)
             
-            # Render the query (resolves Jinja tags, variables, and potential file templates)
-            sql = self._render_query(cmd, ctx)
+            # 3. Setup Thread Local Context for Extensions
+            context_storage.db_conn = ctx
+            context_storage.connection_map = self.connection_map
+            context_storage.session_id = cmd.session_id
+            context_storage.python_stdout = ""
             
-            # Check if SQL is effectively empty (only comments or whitespace)
+            # 4. Render Query (Jinja)
+            try:
+                sql = self._render_query(cmd, ctx)
+            except Exception as e:
+                raise pa.flight.FlightServerError(f"Template rendering error: {str(e)}")
+
+            # 5. Check if SQL is effectively empty
             clean_lines = []
             comment_lines = []
             if sql:
                 for line in sql.splitlines():
                     stripped = line.strip()
-                    if not stripped:
-                        continue
+                    if not stripped: continue
                     if stripped.startswith("--"):
                         comment_lines.append(stripped[2:].strip())
                     else:
@@ -128,26 +147,27 @@ class StreamFlightServer(pa.flight.FlightServerBase):
             is_effectively_empty = len(clean_lines) == 0
 
             if is_effectively_empty:
-                 # Construct message from comments or default
+                 # Construct message
                  msg = "İşlem başarıyla tamamlandı."
-                 
-                 # Check for Python stdout capture (from PythonExtension)
                  python_stdout = getattr(context_storage, "python_stdout", None)
                  if python_stdout:
                      msg = python_stdout.strip()
                  elif comment_lines:
                      msg = "\n".join(comment_lines)
 
-                 # Return single row with message
-                 batch = pa.RecordBatch.from_arrays(
-                     [pa.array([msg])],
-                     names=["Result"]
-                 )
-                 # Note: Provide a schema even for empty results to avoid client confusion
+                 batch = pa.RecordBatch.from_arrays([pa.array([msg])], names=["Result"])
                  return pa.flight.RecordBatchStream(pa.RecordBatchReader.from_batches(batch.schema, [batch]))
 
-            # Direct connection execution (Post-Render)
-            if cmd.connection_id and cmd.connection_id != "default":
+            # 6. Execute Query
+            
+            # Check for side effects (e.g. {% reader %} was used)
+            # If side effects occurred, we MUST execute in the Session Context (DuckDB) because
+            # that's where the data was loaded. Executing on an external connection would fail
+            # to find the temporary table.
+            has_side_effects = getattr(context_storage, "has_side_effects", False)
+            
+            # Direct connection execution
+            if cmd.connection_id and cmd.connection_id != "default" and not has_side_effects:
                 target_conn = self.connections.get(str(cmd.connection_id))
                 if target_conn:
                     logger.info(f"Executing rendered query on connection {cmd.connection_id}")
@@ -155,31 +175,28 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                 else:
                     logger.warning(f"Connection ID {cmd.connection_id} not found. Falling back to default.")
 
-            # DuckDB execution
+            # DuckDB internal execution
             # Connect execution (Post-Render) happens here
-            
-            # Execute and get relation
-            rel = ctx.sql(sql)
+            if has_side_effects and cmd.connection_id and cmd.connection_id != "default":
+                logger.info(f"Side-effects detected (e.g. reader). Forcing execution on Memory/DuckDB instead of external connection {cmd.connection_id}")
+            try:
+                rel = ctx.sql(sql)
+                if rel is None:
+                    # DDL returned no relation
+                    batch = pa.RecordBatch.from_arrays([pa.array(["İşlem başarıyla tamamlandı."])], names=["Result"])
+                    return pa.flight.RecordBatchStream(pa.RecordBatchReader.from_batches(batch.schema, [batch]))
+                
+                reader = rel.fetch_arrow_reader(batch_size=1024)
+                return pa.flight.RecordBatchStream(reader)
+            except Exception as e:
+                # DuckDB execution error
+                raise e
 
-            if rel is None:
-                # DDL executed successfully but returned no relation
-                batch = pa.RecordBatch.from_arrays(
-                     [pa.array(["İşlem başarıyla tamamlandı."])],
-                     names=["Result"]
-                 )
-                return pa.flight.RecordBatchStream(pa.RecordBatchReader.from_batches(batch.schema, [batch]))
-            
-            # Stream result as Arrow
-            # fetch_arrow_reader returns a pyarrow.RecordBatchReader
-            reader = rel.fetch_arrow_reader(batch_size=1024)
-            
-            return pa.flight.RecordBatchStream(reader)
         except Exception as e:
             logger.exception("Query execution failed")
-            # Clean up error message for display
             msg = str(e)
             
-            # Remove DuckDB specific prefixes if any (DuckDB usually gives clean errors but just in case)
+            # Clean up error message
             duckdb_prefixes = [
                 "Binder Error: ", "Catalog Error: ", "Parser Error: ",
                 "Constraint Error: ", "Conversion Error: ", "Data Error: ",
@@ -190,15 +207,9 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                 if prefix in msg:
                     msg = msg.replace(prefix, "")
             
-            # Remove Python traceback details if present (often starts with Detail: Python exception:)
             if "Detail: Python exception" in msg:
                 msg = msg.split("Detail: Python exception")[0].strip()
             
-            # Handle standard "Table '...' already exists" or "doesn't exist" clean up if regex didn't catch it perfectly
-            if "already exists" in msg or "doesn't exist" in msg:
-                 # Try to keep just the relevant part if there's still noise
-                 pass
-
             raise pa.flight.FlightServerError(msg)
 
     def _execute_on_external(self, conn_str, query):
