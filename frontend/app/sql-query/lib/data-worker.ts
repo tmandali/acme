@@ -121,7 +121,7 @@ class DataWorkerPool {
 
         worker.onerror = (error) => {
             ; (worker as any).busy = false
-            task.reject(error)
+            task.reject(new Error(error.message))
             this.processQueue()
         }
 

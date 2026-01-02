@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
         cmd: Buffer.from(JSON.stringify({ query, criteria, session_id: sessionId, connection_id: connectionId })),
     };
 
-    return new Promise((resolve) => {
+    return new Promise<NextResponse>((resolve) => {
         // 1. Get Flight Info
         client.GetFlightInfo(descriptor, async (err: any, info: any) => {
             if (err) {

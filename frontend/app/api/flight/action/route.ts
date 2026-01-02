@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
         body: Buffer.from(JSON.stringify(payload || {})),
     };
 
-    return new Promise((resolve) => {
+    return new Promise<NextResponse>((resolve) => {
         const stream = client.DoAction(action);
         let result = Buffer.alloc(0);
 

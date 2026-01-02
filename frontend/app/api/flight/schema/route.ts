@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
         body: Buffer.from(JSON.stringify({ session_id: sessionId })),
     };
 
-    return new Promise((resolve) => {
+    return new Promise<NextResponse>((resolve) => {
         const stream = client.DoAction(action);
         let result = Buffer.alloc(0);
 

@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
 
     const templates: any[] = [];
 
-    return new Promise((resolve) => {
+    return new Promise<NextResponse>((resolve) => {
         const call = client.ListFlights({ expression: Buffer.alloc(0) });
 
         call.on("data", (info: any) => {

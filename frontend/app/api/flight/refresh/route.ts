@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
         body: Buffer.from(JSON.stringify({ table_name: tableName, session_id: sessionId }))
     };
 
-    return new Promise((resolve) => {
+    return new Promise<NextResponse>((resolve) => {
         const stream = client.DoAction(action);
         let finished = false;
 
