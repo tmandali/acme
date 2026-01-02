@@ -129,3 +129,32 @@ export async function POST(
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
     }
 }
+export async function DELETE(
+    request: NextRequest,
+    { params }: { params: Promise<{ slug: string }> }
+) {
+    const { slug } = await params
+
+    if (!/^[a-zA-Z0-9_\-]+$/.test(slug)) {
+        return NextResponse.json({ error: "Invalid slug" }, { status: 400 })
+    }
+
+    const queryDir = path.join(process.cwd(), "app/sql-query/query")
+    const yamlPath = path.join(queryDir, `${slug}.yaml`)
+    const ymlPath = path.join(queryDir, `${slug}.yml`)
+
+    try {
+        if (fs.existsSync(yamlPath)) {
+            fs.unlinkSync(yamlPath)
+        } else if (fs.existsSync(ymlPath)) {
+            fs.unlinkSync(ymlPath)
+        } else {
+            return NextResponse.json({ error: "Query not found" }, { status: 404 })
+        }
+
+        return NextResponse.json({ success: true, message: "Query deleted successfully" })
+    } catch (error) {
+        console.error(`Error deleting query ${slug}:`, error)
+        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
+    }
+}

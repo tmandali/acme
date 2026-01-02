@@ -794,6 +794,12 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         # ... (Log Streaming Logic skipped for brevity implementation is unchanged) ...
         # Ensure we join thread if we didn't enter log streaming loop or finished it
         
+        # Define Log Schema globally for this function scope
+        log_schema = pa.schema([
+            pa.field("stream_type", pa.string()),
+            pa.field("stream_content", pa.string())
+        ])
+
         first_item = log_queue.get()
         
         if first_item is not None:

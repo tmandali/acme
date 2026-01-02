@@ -48,6 +48,7 @@ import { ConnectionSelector } from "./connection-selector"
 import { CopyButton } from "./copy-button"
 import { ApiTabContent } from "./api-tab-content"
 import { SQLToolbar } from "./sql-toolbar"
+import { SavedQueriesList } from "./saved-queries-list"
 
 
 // Tipler ve Veriler
@@ -762,6 +763,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                                 onChange={handleLoadFromYaml}
                                 className="hidden"
                             />
+                            <SavedQueriesList />
                             <Button variant="outline" size="sm" className="gap-2 text-primary border-primary hover:bg-primary/10" onClick={handleSaveToServer} disabled={isSaving}>
                                 <Save className="h-3.5 w-3.5" />
                                 {isSaving ? "Kaydediliyor..." : "Kaydet"}
