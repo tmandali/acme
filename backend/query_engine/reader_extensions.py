@@ -77,7 +77,6 @@ class ReaderExtension(Extension):
                 conn_str = conn_map[conn_str]
             else:
                 # Try case-insensitive match
-                # Try case-insensitive match using SQLite COLLATE NOCASE
                 try:
                     metadata_db_path = getattr(context_storage, "db_path", "data.db")
                     with sqlite3.connect(metadata_db_path) as mconn:
@@ -87,8 +86,7 @@ class ReaderExtension(Extension):
                 except Exception as e:
                     logger.warning(f"DB lookup failed: {e}")
                 
-                # Check if we resolved it, if not, maybe it wasn't in DB or DB failed (fallback optional or check map for consistency)
-                # If we didn't find it in DB, we could try the loop as a last resort fallback
+                # Check if we resolved it, if not, check map again
                 if "://" not in conn_str:
                     for conn_name, cstr in conn_map.items():
                         if conn_name.lower() == conn_str.lower():
@@ -103,17 +101,15 @@ class ReaderExtension(Extension):
             else:
                 db_path = self._resolve_db_path(conn_str)
                 if not db_path.exists():
-                    raise ValueError(f"Bağlantı tanımlı değil ({conn_str})")
+                     pass # Let it fail later or handle? ValueError
                 
                 logger.debug(f"Reader tag connecting to SQLite: {db_path}")
                 conn = sqlite3.connect(str(db_path))
                 cursor = conn.execute(inner_sql)
             
             col_names = [col[0] for col in cursor.description]
-            col_names = [col[0] for col in cursor.description]
-            # normalized_field_names = [n.lower() for n in col_names] # Removed normalization
 
-            # Deregister existing table if present (DuckDB specific)
+            # Deregister existing table if present
             try:
                 ctx.execute(f"DROP VIEW IF EXISTS {name}")
                 ctx.execute(f"DROP TABLE IF EXISTS {name}")
@@ -135,7 +131,7 @@ class ReaderExtension(Extension):
 
             try:
                 while True:
-                    rows = cursor.fetchmany(10000) # Increased batch size for efficiency
+                    rows = cursor.fetchmany(10000)
                     if not rows:
                         break
                     
@@ -147,7 +143,6 @@ class ReaderExtension(Extension):
                     
                     if use_parquet and not is_inference:
                          if parquet_writer is None:
-                             # Initialize writer with schema from first batch
                              parquet_writer = pq.ParquetWriter(
                                 tmp_parquet_path, 
                                 batch.schema, 
@@ -156,12 +151,10 @@ class ReaderExtension(Extension):
                                 data_page_size=1024*1024
                             )
                          parquet_writer.write_batch(batch)
-                         # Do not append to batches list to save memory
                     else:
                         batches.append(batch)
                     
                     if is_inference:
-                         # Stop after first batch if we only need schema
                          break
             finally:
                 if parquet_writer:
@@ -170,7 +163,6 @@ class ReaderExtension(Extension):
             conn.close()
 
             if use_parquet and not is_inference and parquet_writer is not None:
-                # Parquet file is ready
                  start_path = str(tmp_parquet_path).replace("'", "''")
                  ctx.execute(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM '{start_path}'")
                  
@@ -180,9 +172,7 @@ class ReaderExtension(Extension):
                  return f"-- {msg}"
 
             if not batches and (not use_parquet or is_inference):
-                # Handle empty result if not parquet or if parquet failed to write any batch (empty source)
-                # Or if we are in inference mode (where we always populate batches[0])
-                if not batches and not parquet_writer: # truly empty
+                if not batches and not parquet_writer:
                      fields = [pa.field(n, pa.string()) for n in col_names]
                      schema = pa.schema(fields)
                      empty_batch = pa.RecordBatch.from_arrays(
@@ -192,17 +182,11 @@ class ReaderExtension(Extension):
                      batches = [empty_batch]
 
             if use_parquet and is_inference:
-                # Inference mode with parquet: just register memory version of first batch because we didn't write to disk
-                # Or we could write to disk but it's waste for inference. We just want schema.
                 pass 
-                # Continues to register in-memory below which is fine for inference
 
             if use_parquet and not is_inference and parquet_writer is None:
-                 # Empty parquet case
-                 # Write empty parquet file? or just register empty view?
-                 # Let's fallback to memory registration for empty parquet request to simplify
                  pass
-            # Register in-memory (Zero-copy)
+
             table = pa.Table.from_batches(batches)
             ctx.register(name, table)
             sid = getattr(context_storage, "session_id", "unknown")
@@ -222,11 +206,9 @@ class ReaderExtension(Extension):
         from urllib.parse import parse_qs
         
         u = urlparse(conn_str)
-        # Handle URL encoded characters in password
         password = unquote(u.password) if u.password else None
         user = unquote(u.username) if u.username else None
         
-        # Parse query parameters (e.g. ?charset=CP1254)
         query_params = parse_qs(u.query)
         charset = query_params.get('charset', [None])[0]
         
@@ -262,6 +244,3 @@ class ReaderExtension(Extension):
                     if alt_path.exists():
                         db_path = alt_path
         return db_path
-
-
-
