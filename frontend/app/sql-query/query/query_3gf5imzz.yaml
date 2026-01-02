@@ -2,6 +2,7 @@ name: TestOltp Sorgu
 sql: |-
   select * from tb_Depo;
 
+
   {% reader 'depo','TestOltp.Retail', TRUE %}
   select * from tb_Depo;
   {% endreader %}
