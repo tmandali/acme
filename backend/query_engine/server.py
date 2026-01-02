@@ -262,13 +262,13 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                 schema = pa.schema([])
                 return pa.flight.RecordBatchStream(pa.RecordBatchReader.from_batches(schema, []))
 
-            normalized_names = [n.lower() for n in col_names]
+            # normalized_names = [n.lower() for n in col_names] # Removed normalization
             
             # Fetch first batch to infer schema
             batch_size = 5000
             first_rows = cursor.fetchmany(batch_size)
             if not first_rows:
-                fields = [pa.field(n, pa.string()) for n in normalized_names] 
+                fields = [pa.field(n, pa.string()) for n in col_names] 
                 schema = pa.schema(fields)
                 return pa.flight.RecordBatchStream(pa.RecordBatchReader.from_batches(schema, []))
 
@@ -280,7 +280,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
 
             first_batch = pa.RecordBatch.from_arrays(
                 arrays,
-                names=normalized_names
+                names=col_names
             )
             schema = first_batch.schema
 

@@ -110,7 +110,8 @@ class ReaderExtension(Extension):
                 cursor = conn.execute(inner_sql)
             
             col_names = [col[0] for col in cursor.description]
-            normalized_field_names = [n.lower() for n in col_names]
+            col_names = [col[0] for col in cursor.description]
+            # normalized_field_names = [n.lower() for n in col_names] # Removed normalization
 
             # Deregister existing table if present (DuckDB specific)
             try:
@@ -141,7 +142,7 @@ class ReaderExtension(Extension):
                     cols = list(zip(*rows))
                     batch = pa.RecordBatch.from_arrays(
                         [pa.array(c) for c in cols],
-                        names=normalized_field_names
+                        names=col_names
                     )
                     
                     if use_parquet and not is_inference:
@@ -182,10 +183,10 @@ class ReaderExtension(Extension):
                 # Handle empty result if not parquet or if parquet failed to write any batch (empty source)
                 # Or if we are in inference mode (where we always populate batches[0])
                 if not batches and not parquet_writer: # truly empty
-                     fields = [pa.field(n, pa.string()) for n in normalized_field_names]
+                     fields = [pa.field(n, pa.string()) for n in col_names]
                      schema = pa.schema(fields)
                      empty_batch = pa.RecordBatch.from_arrays(
-                         [pa.array([], type=pa.string()) for _ in normalized_field_names],
+                         [pa.array([], type=pa.string()) for _ in col_names],
                          schema=schema
                      )
                      batches = [empty_batch]
