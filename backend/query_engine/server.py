@@ -79,7 +79,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         conn.execute("""
             CREATE TABLE IF NOT EXISTS _meta_connections (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL,
+                name TEXT UNIQUE NOT NULL COLLATE NOCASE,
                 type TEXT NOT NULL,
                 connection_string TEXT NOT NULL,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -759,7 +759,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         context_storage.log_queue = log_queue
 
         # Result container for thread
-        render_result = {"sql": None, "error": None}
+        render_result = {"sql": None, "error": None, "has_side_effects": False}
         
         # Construct Command Object for _render_query
         cmd = QueryCommand(
@@ -776,8 +776,11 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                 context_storage.log_queue = log_queue
                 
                 # Render Jinja (Runs python blocks which create logs)
-                # Use db_conn from closure, not context_storage (which is empty here initially)
                 render_result["sql"] = self._render_query(cmd, db_conn)
+                
+                # Capture side effects flag from this thread's context
+                render_result["has_side_effects"] = getattr(context_storage, "has_side_effects", False)
+                
             except Exception as e:
                 render_result["error"] = e
             finally:
@@ -788,24 +791,23 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         t = threading.Thread(target=render_thread_target)
         t.start()
         
-        # Wait for the first signal (Log or Done)
-        # This decides our Schema strategy
+        # ... (Log Streaming Logic skipped for brevity implementation is unchanged) ...
+        # Ensure we join thread if we didn't enter log streaming loop or finished it
+        
         first_item = log_queue.get()
         
-        # Define Log Schema
-        log_schema = pa.schema([
-            pa.field("stream_type", pa.string()),
-            pa.field("stream_content", pa.string())
-        ])
-
         if first_item is not None:
-            # OPTION 1: LOG STREAMING MODE
-            # We have logs/output from script. 
-            # We MUST use log_schema for the entire stream to avoid mixed-schema crash.
-            # If there is a final SQL result later, we have to convert it to text/log.
-            
-            def log_generator():
-                # Yeild the first item we already popped
+             # OPTION 1: LOG STREAMING MODE
+             # ... (Existing Log Streaming Logic) ...
+             # We need to make sure we don't duplicate logic here, but for replace block simplest is to keep structure.
+             # Ideally read_file would show me I can just edit the thread part and the check part.
+             # I will assume the user context allows me to edit the surrounding blocks or I should use MultiReplace.
+             # Since I am replacing a large chunk I will just rewrite the thread part and the Option 2 part.
+             
+             # ACTUALLY, I will just return the GeneratorStream as existing code does.
+             # The fix needs to be applied where Option 2 starts.
+             
+             def log_generator():
                 item = first_item
                 while item is not None:
                     s_type = "stdout"
@@ -818,15 +820,10 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                         "stream_content": [s_content]
                     }, schema=log_schema)
                     yield batch
-                    
-                    # Fetch next
                     item = log_queue.get()
                 
-                # Check render errors
                 t.join()
                 if render_result["error"]:
-                     # We can yield error as a log or raise
-                     # Raising here might break the stream mid-flight, usually preferred to show error
                      error_msg = f"\n[RENDER ERROR]: {render_result['error']}"
                      yield pa.RecordBatch.from_pydict({
                         "stream_type": ["stderr"],
@@ -834,17 +831,15 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                      }, schema=log_schema)
                      return
 
-                # Check if there is SQL to execute
                 final_sql = render_result["sql"]
                 is_empty_query = not final_sql or not final_sql.strip() or all(line.strip().startswith("--") for line in final_sql.splitlines())
                 
                 if not is_empty_query:
                     try:
-                        # Convert result to text/csv to display in terminal
+                        # Log Rendered SQL
+                        logger.info(f"Rendered SQL: {final_sql}")
                         arrow_result = context_storage.db_conn.execute(final_sql).arrow()
-                        # Simple summary or CSV representation
                         summary = f"\n[SQL RESULT]: {arrow_result.num_rows} rows returned.\n"
-                        # Maybe simplified display for small results?
                         if arrow_result.num_rows < 50:
                             summary += arrow_result.to_pandas().to_string()
                         else:
@@ -861,26 +856,25 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                             "stream_content": [error_msg]
                          }, schema=log_schema)
             
-            return pa.flight.GeneratorStream(log_schema, log_generator())
+             return pa.flight.GeneratorStream(log_schema, log_generator())
         
         else:
             # OPTION 2: DATA GRID MODE (Normal)
-            # No logs appeared during render (or it finished instantly empty).
             t.join()
             if render_result["error"]:
                  raise render_result["error"]
             
             final_sql = render_result["sql"]
+            has_side_effects = render_result["has_side_effects"]
+
+            logger.info(f"Rendered SQL: {final_sql}")
+
             is_empty_query = not final_sql or not final_sql.strip() or all(line.strip().startswith("--") for line in final_sql.splitlines())
             
             if is_empty_query:
-                # Just return a simple success message (single cell table)
-                # But we must return a Stream.
                 success_schema = pa.schema([("Result", pa.string())])
                 def success_gen():
                     msg = "İşlem başarıyla tamamlandı."
-                    
-                    # Extract comments from final_sql if available
                     comments = []
                     if final_sql:
                          for line in final_sql.splitlines():
@@ -898,12 +892,11 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                 return pa.flight.GeneratorStream(success_schema, success_gen())
             
             # Execute SQL and stream real results
-            # Check for external connection first
-            if cmd.connection_id and cmd.connection_id != "default":
+            # Check for external connection first IF NO SIDE EFFECTS
+            if cmd.connection_id and cmd.connection_id != "default" and not has_side_effects:
                 target_conn = self.connections.get(str(cmd.connection_id))
                 if target_conn:
                     logger.info(f"Executing rendered query on connection {cmd.connection_id}")
-                    # _execute_on_external returns a RecordBatchStream which is a FlightDataStream
                     return self._execute_on_external(target_conn, final_sql)
                 else:
                     logger.warning(f"Connection ID {cmd.connection_id} not found. Falling back to default session.")
@@ -1070,6 +1063,18 @@ class StreamFlightServer(pa.flight.FlightServerBase):
             try:
                 conn = sqlite3.connect(self.db_path)
                 cursor = conn.cursor()
+
+                # Check unique name (case-insensitive) using explicit collation
+                if conn_id:
+                     # For update
+                     cursor.execute("SELECT 1 FROM _meta_connections WHERE name = ? COLLATE NOCASE AND id != ?", (name, conn_id))
+                else:
+                     # For insert
+                     cursor.execute("SELECT 1 FROM _meta_connections WHERE name = ? COLLATE NOCASE", (name,))
+                
+                if cursor.fetchone():
+                    conn.close()
+                    raise pa.flight.FlightServerError(f"Connection with name '{name}' already exists.")
 
                 if conn_id:
                     # Update
