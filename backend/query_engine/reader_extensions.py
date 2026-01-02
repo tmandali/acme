@@ -82,6 +82,9 @@ class ReaderExtension(Extension):
                 cursor.execute(inner_sql)
             else:
                 db_path = self._resolve_db_path(conn_str)
+                if not db_path.exists():
+                    return f"-- Error: Connection '{conn_str}' not found in map, and gathered path '{db_path}' does not exist as a SQLite file."
+                
                 logger.debug(f"Reader tag connecting to SQLite: {db_path}")
                 conn = sqlite3.connect(str(db_path))
                 cursor = conn.execute(inner_sql)
