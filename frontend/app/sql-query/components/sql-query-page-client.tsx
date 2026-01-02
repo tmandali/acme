@@ -78,7 +78,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     const [isResizingPanel, setIsResizingPanel] = useState(false)
     const [activeTab, setActiveTab] = useState<"edit" | "preview" | "api">("edit")
     const [mounted, setMounted] = useState(false)
-    const [selectedConnectionId, setSelectedConnectionId] = useState(initialData?.connectionId || "default")
+    const [selectedConnectionId, setSelectedConnectionId] = useState(initialData?.connectionId ? String(initialData.connectionId) : "default")
     const [isConnOpen, setIsConnOpen] = useState(false)
     const [currentWorkflowId, setCurrentWorkflowId] = useState<string | null>(null)
     const [refreshingTables, setRefreshingTables] = useState<Set<string>>(new Set())
@@ -99,7 +99,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
             setQuery(initialData.sql || "")
             setQueryName(initialData.name || "Yeni sorgu")
             setVariables(initialData.variables || [])
-            setSelectedConnectionId(initialData.connectionId || "default")
+            setSelectedConnectionId(initialData.connectionId ? String(initialData.connectionId) : "default")
             prevSlugRef.current = slug
         }
     }, [initialData, slug])
@@ -189,7 +189,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                     const data = await res.json()
                     if (Array.isArray(data)) {
                         const mapped = data.map((c: any) => ({
-                            id: c.id,
+                            id: String(c.id),
                             name: c.name,
                             type: c.type
                         }))
@@ -475,13 +475,15 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
 
                     // Bağlantıyı güncelle
                     if (parsed.connectionId) {
-                        const connectionExists = connections.some(c => c.id === parsed.connectionId)
+                        const targetId = String(parsed.connectionId)
+                        const connectionExists = connections.some(c => String(c.id) === targetId)
+
                         if (connectionExists) {
-                            setSelectedConnectionId(parsed.connectionId)
+                            setSelectedConnectionId(targetId)
                         } else {
                             // Bağlantı bulunamazsa Memory'ye (default) dön
                             setSelectedConnectionId("default")
-                            toast.info(`Kayıtlı bağlantı bulunamadı, "Memory" seçildi.`)
+                            toast.info(`Kayıtlı bağlantı bulunamadı (${targetId}), "Memory" seçildi.`)
                         }
                     } else {
                         // Dosyada bağlantı yoksa Memory seç
