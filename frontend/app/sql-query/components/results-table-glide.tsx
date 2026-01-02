@@ -161,6 +161,7 @@ export function ResultsTableGlide({
             bgHeader: isDark ? "#141414" : "#f5f5f5",
             borderColor: isDark ? "#262626" : "#e5e5e5",
             fontFamily: "ui-sans-serif, system-ui, sans-serif",
+            textHeader: isDark ? "#e5e5e5" : "#404040",
             headerFontStyle: "600 12px",
             baseFontStyle: "12px",
         }
