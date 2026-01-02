@@ -473,6 +473,21 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
                         setSelectedVariable(null)
                     }
 
+                    // Bağlantıyı güncelle
+                    if (parsed.connectionId) {
+                        const connectionExists = connections.some(c => c.id === parsed.connectionId)
+                        if (connectionExists) {
+                            setSelectedConnectionId(parsed.connectionId)
+                        } else {
+                            // Bağlantı bulunamazsa Memory'ye (default) dön
+                            setSelectedConnectionId("default")
+                            toast.info(`Kayıtlı bağlantı bulunamadı, "Memory" seçildi.`)
+                        }
+                    } else {
+                        // Dosyada bağlantı yoksa Memory seç
+                        setSelectedConnectionId("default")
+                    }
+
                     // Sonuçları temizle
                     setResults([])
                 }
@@ -485,7 +500,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
 
         // Input'u sıfırla (aynı dosyayı tekrar seçebilmek için)
         event.target.value = ''
-    }, [])
+    }, [connections])
 
     // Dosya aç butonuna tıklama
     const handleOpenFileClick = useCallback(() => {
