@@ -72,8 +72,15 @@ class ReaderExtension(Extension):
             return "-- Error: Database context not found"
 
         # Resolve connection name if it's not a direct connection string
-        if "://" not in conn_str and conn_str in conn_map:
-            conn_str = conn_map[conn_str]
+        if "://" not in conn_str:
+            if conn_str in conn_map:
+                conn_str = conn_map[conn_str]
+            else:
+                # Try case-insensitive match
+                for name, cstr in conn_map.items():
+                    if name.lower() == conn_str.lower():
+                        conn_str = cstr
+                        break
 
         try:
             if conn_str.startswith("mssql://"):
@@ -83,7 +90,7 @@ class ReaderExtension(Extension):
             else:
                 db_path = self._resolve_db_path(conn_str)
                 if not db_path.exists():
-                    return f"-- Error: Connection '{conn_str}' not found in map, and gathered path '{db_path}' does not exist as a SQLite file."
+                    raise ValueError(f"Bağlantı tanımlı değil ({conn_str})")
                 
                 logger.debug(f"Reader tag connecting to SQLite: {db_path}")
                 conn = sqlite3.connect(str(db_path))
