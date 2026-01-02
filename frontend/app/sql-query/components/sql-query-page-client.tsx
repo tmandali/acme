@@ -90,14 +90,19 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     const [sessionId, setSessionId] = useState<string>("");
 
     // Sync state with initialData props when navigating between queries
+    // Sync state with initialData props when navigating between queries
+    const prevSlugRef = useRef(slug)
     useEffect(() => {
-        if (initialData) {
+        // Only update state if slug changes or if we are mounting a new query (initialData exists and it's different logic)
+        // Using slug comparison prevents re-loading data if parent re-renders but we are on same query
+        if (initialData && slug !== prevSlugRef.current) {
             setQuery(initialData.sql || "")
             setQueryName(initialData.name || "Yeni sorgu")
             setVariables(initialData.variables || [])
             setSelectedConnectionId(initialData.connectionId || "default")
+            prevSlugRef.current = slug
         }
-    }, [initialData])
+    }, [initialData, slug])
 
     // Helper to fetch new session
     const fetchNewSession = useCallback(async () => {

@@ -110,12 +110,24 @@ export function useQueryExecution({ variables, sessionId }: UseQueryExecutionPro
             setQueryStatus("completed");
 
         } catch (e: any) {
-            if (e.name === 'AbortError') {
+            // If we manually aborted, we might get various errors (AbortError, or stream unexpected end)
+            // We should treat all of them as "Cancelled" if the signal is aborted.
+            if (e.name === 'AbortError' || controller.signal.aborted) {
                 toast.info("Sorgu iptal edildi")
                 setQueryStatus("cancelled")
             } else {
-                setErrorDetail(e.message)
-                // toast.error("Sorgu hatası") - Gerek yok, arayüzde gösteriyoruz
+                // If not aborted, it's a real error
+                console.error("Query execution error:", e);
+
+                // Specific filter for the "Expected to read..." error which sometimes happens 
+                // if the server closes connection abruptly but frontend didn't register abort yet
+                if (e.message && e.message.includes("Expected to read") && e.message.includes("but only read 0")) {
+                    // Treat as cancellation or network interruption
+                    toast.warning("Sorgu akışı kesildi.")
+                    setQueryStatus("cancelled")
+                } else {
+                    setErrorDetail(e.message)
+                }
             }
         } finally {
             setIsLoading(false)

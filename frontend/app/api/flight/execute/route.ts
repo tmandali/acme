@@ -134,9 +134,13 @@ export async function POST(request: NextRequest) {
                     endBuf.writeInt32LE(0, 0);
 
                     if (controllerRef) {
-                        controllerRef.enqueue(continuationBuf);
-                        controllerRef.enqueue(endBuf);
-                        controllerRef.close();
+                        try {
+                            controllerRef.enqueue(continuationBuf);
+                            controllerRef.enqueue(endBuf);
+                            controllerRef.close();
+                        } catch (e) {
+                            // Controller might be already closed if cancelled or errored
+                        }
                     }
                 });
 
