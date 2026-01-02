@@ -37,7 +37,7 @@ export function ResultsTableGlide({
     isFullscreen = false,
     onToggleFullscreen
 }: ResultsTableProps) {
-    const { theme } = useTheme()
+    const { theme, resolvedTheme } = useTheme()
     const [elapsedTime, setElapsedTime] = React.useState(0)
     const startTimeRef = React.useRef<number | null>(null)
     const [columnWidths, setColumnWidths] = React.useState<Record<string, number>>({})
@@ -149,7 +149,8 @@ export function ResultsTableGlide({
     }, [isLoading])
 
     const customTheme = React.useMemo((): Partial<Theme> => {
-        const isDark = theme === "dark"
+        // Use resolvedTheme to correctly handle 'system' preference
+        const isDark = resolvedTheme === "dark" || (theme === "dark" && !resolvedTheme)
         return {
             accentColor: isDark ? "#60a5fa" : "#3b82f6",
             accentLight: isDark ? "rgba(96, 165, 250, 0.1)" : "rgba(59, 130, 246, 0.05)",
@@ -163,7 +164,7 @@ export function ResultsTableGlide({
             headerFontStyle: "600 12px",
             baseFontStyle: "12px",
         }
-    }, [theme])
+    }, [theme, resolvedTheme])
 
     const handleExport = React.useCallback(() => {
         // Simple CSV export (only from objects or limited arrow for now)
