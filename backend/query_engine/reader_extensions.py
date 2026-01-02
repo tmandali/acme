@@ -195,23 +195,33 @@ class ReaderExtension(Extension):
 
     def _connect_mssql(self, conn_str):
         import pymssql
+        from urllib.parse import parse_qs
+        
         u = urlparse(conn_str)
         # Handle URL encoded characters in password
         password = unquote(u.password) if u.password else None
         user = unquote(u.username) if u.username else None
         
+        # Parse query parameters (e.g. ?charset=CP1254)
+        query_params = parse_qs(u.query)
+        charset = query_params.get('charset', [None])[0]
+        
         database = u.path.lstrip('/')
-        # Extract additional params like encrypt=true
-        # pymssql doesn't support them all natively in connect() but we handle the basics
-        return pymssql.connect(
-            server=u.hostname,
-            user=user,
-            password=password,
-            database=database,
-            port=u.port or 1433,
-            timeout=10,
-            autocommit=True
-        )
+        
+        connect_args = {
+            "server": u.hostname,
+            "user": user,
+            "password": password,
+            "database": database,
+            "port": u.port or 1433,
+            "timeout": 10,
+            "autocommit": True
+        }
+        
+        if charset:
+            connect_args["charset"] = charset
+            
+        return pymssql.connect(**connect_args)
 
     def _resolve_db_path(self, conn_str):
         db_path_str = conn_str.replace("sqllite://", "").replace("sqlite://", "").replace("sqlite3://", "")
