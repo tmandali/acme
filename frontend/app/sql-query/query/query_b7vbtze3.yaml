@@ -1,10 +1,12 @@
 name: TestOltp Sorgu
 sql: |-
-  {% reader 'sample_user','Local.TestDb', TRUE %}
-  select top 1000 * from users;
+  select * from tb_Depo;
+
+  {% reader 'depo','TestOLTP.Retail', TRUE %}
+  select * from tb_Depo;
   {% endreader %}
 
-  select * from sample_user;
+  select * from depo;
 
   {% python 'doviz' %}
     import requests
@@ -46,4 +48,4 @@ sql: |-
 
   select * from doviz;
 variables: []
-connectionId: "2"
+connectionId: "5"

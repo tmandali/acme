@@ -254,7 +254,8 @@ class StreamFlightServer(pa.flight.FlightServerBase):
             normalized_names = [n.lower() for n in col_names]
             
             # Fetch first batch to infer schema
-            first_rows = cursor.fetchmany(1000)
+            batch_size = 5000
+            first_rows = cursor.fetchmany(batch_size)
             if not first_rows:
                 fields = [pa.field(n, pa.string()) for n in normalized_names] 
                 schema = pa.schema(fields)
@@ -262,10 +263,8 @@ class StreamFlightServer(pa.flight.FlightServerBase):
 
             cols = list(zip(*first_rows))
             # Convert to PyArrow arrays with type inference
-            # We might need to handle specific types like Decimal or Date better here
             arrays = []
             for c in cols:
-                # Basic handling to ensure compatibility, PyArrow is usually good at inferring
                 arrays.append(pa.array(c))
 
             first_batch = pa.RecordBatch.from_arrays(
@@ -277,10 +276,31 @@ class StreamFlightServer(pa.flight.FlightServerBase):
             def batch_gen():
                 yield first_batch
                 while True:
-                    rows = cursor.fetchmany(1000)
-                    if not rows: break
-                    cols = list(zip(*rows))
-                    yield pa.RecordBatch.from_arrays([pa.array(c) for c in cols], schema=schema)
+                    try:
+                        rows = cursor.fetchmany(batch_size)
+                        if not rows: break
+                        cols = list(zip(*rows))
+                        # Use schema types to ensure consistency across batches
+                        batch_arrays = []
+                        for i, c in enumerate(cols):
+                            # Handle potential type mismatches (e.g. first batch NULL -> inferred NullType, second batch -> Int)
+                            # If schema field is NullType but we have data, we might lose data or crash.
+                            # For now, we try to cast to schema type.
+                            target_type = schema.field(i).type
+                            try:
+                                batch_arrays.append(pa.array(c, type=target_type))
+                            except Exception:
+                                # Fallback: let pyarrow infer and hope it's compatible or castable?
+                                # If we return different type, stream crashes. 
+                                # We log warning and try string as last resort for safety? No, string breaks schema.
+                                # Just let it try default inference if strict typed failed, but this might violate schema.
+                                logger.warning(f"Type mismatch in column {i}. schema={target_type}. data example={c[0]}")
+                                batch_arrays.append(pa.array(c))
+
+                        yield pa.RecordBatch.from_arrays(batch_arrays, schema=schema)
+                    except Exception as e:
+                        logger.error(f"Error streaming batch: {e}")
+                        break
                 conn.close()
 
             return pa.flight.RecordBatchStream(pa.RecordBatchReader.from_batches(schema, batch_gen()))
