@@ -251,11 +251,13 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
     }, [sessionId, refreshSchema])
 
     // Table Refresh Logic
+    const lastRefreshedSessionRef = useRef<string | null>(null)
     useEffect(() => {
-        if (mounted && sessionId) {
+        if (mounted && sessionId && lastRefreshedSessionRef.current !== sessionId) {
             refreshSchema()
+            lastRefreshedSessionRef.current = sessionId
         }
-    }, [mounted, sessionId]) // Removed refreshSchema from dependencies to avoid loop if it's not memoized correctly upstream (though it is useCallback)
+    }, [mounted, sessionId]) // Only run when session ID changes
 
     // Hook integration
     const {
