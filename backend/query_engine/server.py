@@ -537,8 +537,15 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         # global environment variables would be overwritten.
         context_storage.db_conn = ctx
         context_storage.connection_map = self.connection_map
+        context_storage.db_path = self.db_path
         context_storage.session_id = cmd.session_id
         context_storage.python_stdout = "" # Clear captured stdout
+
+# ... (Do not include intermediate lines, I will make two separate replace calls if needed or one with correct context if contiguous. They are not contiguous.)
+
+# Wait, the tool doesn't support non-contiguous via replace_file_content.
+# I need to use multi_replace_file_content.
+
         
         criteria = {k: SqlWrapper(v, k, jinja_env=self.jinja_env) for k, v in cmd.criteria.items()}
         
@@ -750,6 +757,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         # Setup context storage
         context_storage.db_conn = db_conn
         context_storage.connection_map = self.connection_map
+        context_storage.db_path = self.db_path
         context_storage.session_id = session_id
         context_storage.python_stdout = ""
         context_storage.has_side_effects = False

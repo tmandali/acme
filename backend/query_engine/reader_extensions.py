@@ -79,7 +79,8 @@ class ReaderExtension(Extension):
                 # Try case-insensitive match
                 # Try case-insensitive match using SQLite COLLATE NOCASE
                 try:
-                    with sqlite3.connect("data.db") as mconn:
+                    metadata_db_path = getattr(context_storage, "db_path", "data.db")
+                    with sqlite3.connect(metadata_db_path) as mconn:
                         res = mconn.execute("SELECT connection_string FROM _meta_connections WHERE name = ? COLLATE NOCASE", (conn_str,)).fetchone()
                         if res:
                             conn_str = res[0]
