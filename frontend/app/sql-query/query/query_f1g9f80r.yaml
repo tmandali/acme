@@ -6,6 +6,24 @@ sql: |-
 
   select * from depo;
 
+
+  {% python 'sorgu_sonucu.xlsx' %}
+  import io
+  # 1. Sorguyu çalıştırın
+  res = ctx.sql("SELECT * FROM depo")
+  # 2. Sonucu Pandas DataFrame'e çevirin
+  df = res.df()
+  # 3. Çıktı için hafızada bir dosya oluşturun
+  output = io.BytesIO()
+  # 4. DataFrame'i Excel formatında bu dosyaya yazın
+  # (index=False diyerek satır numaralarını dahil etmiyoruz)
+  df.to_excel(output, index=False)
+  # 5. Dosyayı döndürün (Sistem otomatik olarak indirilebilir hale getirir)
+  return output
+  {% endpython %}
+
+
+
   {% python 'doviz' %}
     import requests
     import xml.etree.ElementTree as ET
@@ -46,4 +64,4 @@ sql: |-
 
   select * from doviz;
 variables: []
-connectionId: "2"
+connectionId: default

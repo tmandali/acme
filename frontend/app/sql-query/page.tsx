@@ -536,34 +536,6 @@ export default function SQLQueryDashboard() {
                   </div>
                 </div>
 
-                {/* Recent Activities (Son Sorgular) */}
-                <div>
-                  <h2 className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold mb-6">SON AKTİVİTELER</h2>
-                  <div className="flex flex-col">
-                    {queries.map((query) => (
-                      <ActivityItem
-                        key={query.slug}
-                        title={query.name}
-                        description={`${query.slug}.yaml üzerinden başarıyla çalıştırıldı`}
-                        time="2dk"
-                        icon={FileCode}
-                        color="text-primary/60"
-                        href={`/sql-query/${query.slug}`}
-                      />
-                    ))}
-                    <ActivityItem
-                      title="Bağlantı Kuruldu"
-                      description="Production ERP veritabanı bağlantısı aktifleştirildi"
-                      time="15dk"
-                      icon={Database}
-                      color="text-orange-500/60"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Two Column Layout - Row 2 */}
-              <div className="mt-20 grid grid-cols-1 lg:grid-cols-2 gap-16">
                 {/* Master Data (Ana Veriler) */}
                 <div>
                   <h2 className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold mb-6">ANA VERİLER</h2>
@@ -661,6 +633,34 @@ export default function SQLQueryDashboard() {
                       icon={Terminal}
                       href="/sql-query/docs"
                       color="text-emerald-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Two Column Layout - Row 2 */}
+              <div className="mt-20 grid grid-cols-1 lg:grid-cols-2 gap-16">
+                {/* Recent Activities (Son Sorgular) */}
+                <div>
+                  <h2 className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold mb-6">SON AKTİVİTELER</h2>
+                  <div className="flex flex-col">
+                    {queries.map((query) => (
+                      <ActivityItem
+                        key={query.slug}
+                        title={query.name}
+                        description={`${query.slug}.yaml üzerinden başarıyla çalıştırıldı`}
+                        time="2dk"
+                        icon={FileCode}
+                        color="text-primary/60"
+                        href={`/sql-query/${query.slug}`}
+                      />
+                    ))}
+                    <ActivityItem
+                      title="Bağlantı Kuruldu"
+                      description="Production ERP veritabanı bağlantısı aktifleştirildi"
+                      time="15dk"
+                      icon={Database}
+                      color="text-orange-500/60"
                     />
                   </div>
                 </div>
