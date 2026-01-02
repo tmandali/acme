@@ -255,7 +255,7 @@ export default function SQLQueryPageClient({ initialData, slug }: SQLQueryPageCl
         if (mounted && sessionId) {
             refreshSchema()
         }
-    }, [mounted, sessionId, refreshSchema])
+    }, [mounted, sessionId]) // Removed refreshSchema from dependencies to avoid loop if it's not memoized correctly upstream (though it is useCallback)
 
     // Hook integration
     const {
