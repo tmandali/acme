@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     // const sessionId = request.headers.get("x-session-id") || "default"; // This line is replaced
 
     // Use environment variable for Flight server location
-    const location = process.env.ARROW_FLIGHT_URL || "localhost:8815";
+    const location = process.env.ARROW_FLIGHT_URL || "127.0.0.1:8815";
     const client = new flightProto.FlightService(location, grpc.credentials.createInsecure());
 
     // Prepare Descriptor (CMD type)
@@ -145,6 +145,10 @@ export async function POST(request: NextRequest) {
                 });
 
                 call.on('error', (err: any) => {
+                    // Ignore client cancellation errors (Code 1 = CRPC Cancelled)
+                    if (err.code === 1 || err.details === 'Cancelled on client') {
+                        return;
+                    }
                     console.error("DoGet Stream Error:", err);
                     if (!streamStarted) {
                         streamStarted = true;

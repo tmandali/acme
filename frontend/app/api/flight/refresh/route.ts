@@ -20,7 +20,7 @@ const flightProto = grpcObj.arrow.flight.protocol;
 export async function POST(request: NextRequest) {
     const { tableName } = await request.json();
     const sessionId = request.headers.get("x-session-id") || "default";
-    const location = process.env.ARROW_FLIGHT_URL || "localhost:8815";
+    const location = process.env.ARROW_FLIGHT_URL || "127.0.0.1:8815";
     const client = new flightProto.FlightService(location, grpc.credentials.createInsecure());
 
     const action = {

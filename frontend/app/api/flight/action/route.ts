@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Missing actionType" }, { status: 400 });
     }
 
-    const location = process.env.ARROW_FLIGHT_URL || "localhost:8815";
+    const location = process.env.ARROW_FLIGHT_URL || "127.0.0.1:8815";
     const client = new flightProto.FlightService(location, grpc.credentials.createInsecure());
 
     const action = {
