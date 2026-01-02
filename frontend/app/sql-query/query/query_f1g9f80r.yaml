@@ -1,0 +1,49 @@
+name: TestOltp Sorgu
+sql: |-
+  {% reader 'depo','TestOltp.Retail', TRUE %}
+  select * from tb_Depo;
+  {% endreader %}
+
+  select * from depo;
+
+  {% python 'doviz' %}
+    import requests
+    import xml.etree.ElementTree as ET
+    url = "https://www.tcmb.gov.tr/kurlar/today.xml"
+    
+    print("Güncel Kur Durumu \U0001F4B0")
+    
+    # 1. XML verisini internetten çekiyoruz
+    response = requests.get(url)
+    response.raise_for_status() # Hata kontrolü (Bağlantı sorunu varsa hata verir)
+
+    # 2. XML içeriğini parçalıyoruz (Parse ediyoruz)
+    root = ET.fromstring(response.content)
+    
+    doviz_listesi = []
+
+    # 3. XML içindeki her bir 'Currency' (Döviz) etiketini geziyoruz
+    for currency in root.findall('Currency'):
+        # Verileri temizleyerek alıyoruz (Boşlukları siliyoruz)
+        kod = currency.get('CurrencyCode') # Örn: USD, EUR
+        isim = currency.find('Isim').text
+        alis = currency.find('ForexBuying').text
+        satis = currency.find('ForexSelling').text
+
+        # Sadece geçerli döviz koduna sahip olanları listeye ekleyelim
+        if kod:
+            doviz_verisi = {
+                "kod": kod,
+                "isim": isim.strip(),
+                "alis": float(alis) if alis else 0.0,
+                "satis": float(satis) if satis else 0.0
+            }
+            doviz_listesi.append(doviz_verisi)
+            print(f"{kod} döviz işlendi ✅" )
+
+    return doviz_listesi
+  {% endpython %}
+
+  select * from doviz;
+variables: []
+connectionId: "2"

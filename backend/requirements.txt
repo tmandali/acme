@@ -7,3 +7,4 @@ pytest
 pandas
 pymssql
 openpyxl
+requests
