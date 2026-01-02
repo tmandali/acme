@@ -9,6 +9,11 @@ import os
 import tempfile
 import subprocess
 import pathlib
+import io
+import shutil
+import uuid
+import logging
+from datetime import datetime
 
 # Import context_storage from reader_extensions to access shared state
 # We use a try-except block to avoid circular import issues if this module is run as a script (e.g. in subprocess)
@@ -357,6 +362,62 @@ def {func_name}():
             # If no result returned (implicit None), we assume side-effects only and stop here.
             if result is None:
                 return ""
+                
+            # Check for BinaryIO (File Download)
+            if hasattr(result, 'read') and (isinstance(result, io.IOBase) or hasattr(result, 'getvalue')):
+                try:
+                    # Determine public path
+                    # Assuming we are in backend/query_engine/py_extensions.py
+                    # We want to go to frontend/public/temp_downloads
+                    backend_root = pathlib.Path(__file__).parent.parent
+                    project_root = backend_root.parent
+                    public_dir = project_root / "frontend" / "public" / "temp_downloads"
+                    
+                    # Create a unique subdirectory to avoid name collisions and allow custom filenames
+                    subdir_id = uuid.uuid4().hex
+                    target_dir = public_dir / subdir_id
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    # Determine filename
+                    # name comes from the Jinja tag: {% python 'my_file.xlsx' %} -> name='my_file.xlsx'
+                    # Default is 'python_output' if not specified
+                    if name and name != "python_output":
+                        safe_filename = pathlib.Path(name).name # Basic security: flatten path
+                    else:
+                        safe_filename = f"download_{datetime.now().strftime('%Y%m%d_%H%M%S')}.bin"
+                        
+                    file_path = target_dir / safe_filename
+                    
+                    # Automatically rewind the stream to the beginning
+                    # This implies users don't need to do output.seek(0) manually
+                    if hasattr(result, 'seek') and hasattr(result, 'tell'):
+                        try:
+                            # Only seek if we are at the end (or to be safe always seek 0)
+                            # Checking tell() > 0 is good but seek(0) is safer for full download
+                            result.seek(0)
+                        except Exception:
+                             # Some streams might not support seeking (e.g. sockets), but BytesIO does.
+                             pass
+                            
+                    with open(file_path, 'wb') as f:
+                        if hasattr(result, 'read'):
+                            shutil.copyfileobj(result, f)
+                        elif hasattr(result, 'getvalue'):
+                            f.write(result.getvalue())
+                            
+                    # Register success message
+                    msg = f"Dosya oluşturuldu. İndirmek için tıklayın."
+                    if log_queue:
+                         log_queue.put(f"\n[SYSTEM]: Binary output saved to {safe_filename}\n")
+                    
+                    # Return special marker for frontend
+                    return f"-- [DOWNLOAD_FILE]:/temp_downloads/{subdir_id}/{safe_filename}"
+
+                except Exception as e:
+                    logger.error(f"Failed to save binary output: {e}")
+                    if log_queue:
+                        log_queue.put(f"[SYSTEM ERROR]: Failed to save binary output: {e}\n")
+                    return ""
             
             # 4. Handle Result (Arrow Conversion & Registration)
             if context_storage and ctx:

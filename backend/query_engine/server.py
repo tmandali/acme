@@ -838,8 +838,20 @@ class StreamFlightServer(pa.flight.FlightServerBase):
                 success_schema = pa.schema([("Result", pa.string())])
                 def success_gen():
                     msg = "İşlem başarıyla tamamlandı."
+                    
+                    # Extract comments from final_sql if available
+                    comments = []
+                    if final_sql:
+                         for line in final_sql.splitlines():
+                             s = line.strip()
+                             if s.startswith("--"):
+                                 comments.append(s[2:].strip())
+
                     if hasattr(context_storage, "python_stdout") and context_storage.python_stdout:
                         msg = context_storage.python_stdout
+                    elif comments:
+                        msg = "\n".join(comments)
+                        
                     yield pa.RecordBatch.from_pydict({"Result": [msg]}, schema=success_schema)
                 
                 return pa.flight.GeneratorStream(success_schema, success_gen())

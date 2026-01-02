@@ -286,6 +286,14 @@ export function ResultsTableGlide({
             successDesc = `Sorgulamak için 'SELECT * FROM ${tableName}' yazın.`;
         }
 
+        // Check for download file pattern
+        let downloadUrl = null;
+        if (successDesc.startsWith("[DOWNLOAD_FILE]:")) {
+            downloadUrl = successDesc.replace("[DOWNLOAD_FILE]:", "").trim();
+            successDesc = "Dosya başarıyla oluşturuldu. İndirmek için yukarıdaki butonu kullanabilirsiniz.";
+            successTitle = "Dosya Hazır";
+        }
+
         // If it's a script output (SingleRowMessage) or Log Stream, show Terminal View
         if (isSingleRowMessage || isLogStream) {
             return (
@@ -307,9 +315,31 @@ export function ResultsTableGlide({
                                     </>
                                 )}
                             </div>
-                            {executionTime !== undefined && (
-                                <span className="text-[10px] text-muted-foreground">DURATION: {formatTime(executionTime)}</span>
-                            )}
+
+                            <div className="flex items-center gap-3">
+                                {downloadUrl && (
+                                    <Button
+                                        variant="outline"
+                                        size="xs"
+                                        className="h-6 text-[10px] gap-1.5 border-emerald-500/30 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
+                                        onClick={() => {
+                                            const a = document.createElement('a');
+                                            a.href = downloadUrl!;
+                                            a.download = downloadUrl!.split('/').pop() || 'download.bin';
+                                            document.body.appendChild(a);
+                                            a.click();
+                                            document.body.removeChild(a);
+                                        }}
+                                    >
+                                        <Download className="w-3 h-3" />
+                                        {downloadUrl.split('/').pop() || 'DOSYAYI İNDİR'}
+                                    </Button>
+                                )}
+
+                                {executionTime !== undefined && (
+                                    <span className="text-[10px] text-muted-foreground">DURATION: {formatTime(executionTime)}</span>
+                                )}
+                            </div>
                         </div>
                         {/* Content */}
                         <div className="flex-1 overflow-auto p-4 whitespace-pre-wrap">

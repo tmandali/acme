@@ -98,6 +98,11 @@ sql: |
   {% endpython %}
 
   {% python %}
+  res = ctx.sql("SELECT * from sample_user")
+  print(f"Test sonucu: {res.fetchone()}")
+  {% endpython %}
+
+  {% python %}
   # Mevcut duckdb session'ı üzerinden sorgu çalıştırma
   # ctx değişkeni otomatik olarak mevcuttur
   res = ctx.sql("SELECT * FROM sample_user WHERE id > 5")
@@ -105,6 +110,39 @@ sql: |
   print(f"Bulunan kayıt sayısı: {res.count('*').fetchone()[0]}")
   # Sonucu döndürme (bu tablo 'my_result' olarak DataFusion/DuckDB'ye kaydedilir)
   # return res
+  {% endpython %}
+
+  {% python %}
+  import io
+  output = io.BytesIO(b"test data")
+  output.seek(0)
+  return output
+  {% endpython %}
+
+  {% python 'rapor.csv' %}
+  import io
+  import pandas as pd
+
+  df = pd.DataFrame({'Data': [10, 20, 30]})
+  output = io.BytesIO()
+  df.to_csv(output) 
+  return output
+  {% endpython %}
+
+
+  {% python 'sorgu_sonucu.xlsx' %}
+  import io
+  # 1. Sorguyu çalıştırın
+  res = ctx.sql("SELECT * FROM sample_user LIMIT 100")
+  # 2. Sonucu Pandas DataFrame'e çevirin
+  df = res.df()
+  # 3. Çıktı için hafızada bir dosya oluşturun
+  output = io.BytesIO()
+  # 4. DataFrame'i Excel formatında bu dosyaya yazın
+  # (index=False diyerek satır numaralarını dahil etmiyoruz)
+  df.to_excel(output, index=False)
+  # 5. Dosyayı döndürün (Sistem otomatik olarak indirilebilir hale getirir)
+  return output
   {% endpython %}
 variables: []
 connectionId: default

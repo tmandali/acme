@@ -6,3 +6,4 @@ faker
 pytest
 pandas
 pymssql
+openpyxl
