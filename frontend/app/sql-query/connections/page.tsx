@@ -14,7 +14,7 @@ import {
     SidebarProvider,
     SidebarTrigger,
 } from "@/components/ui/sidebar"
-import { Database, Plus, Search, Trash2, ArrowLeft } from "lucide-react"
+import { Database, Plus, Search, Trash2, ArrowLeft, Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { Input } from "@/components/ui/input"
@@ -144,16 +144,28 @@ export default function ConnectionsPage() {
                                         <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
                                             <Database className="h-5 w-5 text-primary" />
                                         </div>
-                                        <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
                                             {!conn.id.toString().startsWith("sys_") && (
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                                    onClick={() => handleDelete(conn.id, conn.name)}
-                                                >
-                                                    <Trash2 className="h-4 w-4" />
-                                                </Button>
+                                                <>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                                        asChild
+                                                    >
+                                                        <Link href={`/sql-query/connections/${conn.id}`}>
+                                                            <Pencil className="h-4 w-4" />
+                                                        </Link>
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                                        onClick={() => handleDelete(conn.id, conn.name)}
+                                                    >
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
+                                                </>
                                             )}
                                         </div>
                                     </div>

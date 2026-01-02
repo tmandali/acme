@@ -1031,6 +1031,7 @@ class StreamFlightServer(pa.flight.FlightServerBase):
 
         elif action.type == "save_connection":
             body = json.loads(action.body.to_pybytes().decode())
+            conn_id = body.get("id")
             name = body.get("name")
             ctype = body.get("type")
             cstr = body.get("connection_string")
@@ -1038,19 +1039,33 @@ class StreamFlightServer(pa.flight.FlightServerBase):
             try:
                 conn = sqlite3.connect(self.db_path)
                 cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT INTO _meta_connections (name, type, connection_string) VALUES (?, ?, ?)",
-                    (name, ctype, cstr)
-                )
-                new_id = cursor.lastrowid
+
+                if conn_id:
+                    # Update
+                    cursor.execute(
+                        "UPDATE _meta_connections SET name=?, type=?, connection_string=? WHERE id=?",
+                        (name, ctype, cstr, conn_id)
+                    )
+                    if cursor.rowcount == 0:
+                        conn.close()
+                        raise pa.flight.FlightServerError(f"Connection ID {conn_id} not found.")
+                else:
+                    # Insert
+                    cursor.execute(
+                        "INSERT INTO _meta_connections (name, type, connection_string) VALUES (?, ?, ?)",
+                        (name, ctype, cstr)
+                    )
+                    conn_id = str(cursor.lastrowid)
+
                 conn.commit()
                 conn.close()
                 
-                # Update memory
-                self.connections[str(new_id)] = cstr
-                self.connection_map[name] = cstr
+                # Reload memory
+                self.connections = {}
+                self.connection_map = {}
+                self._load_connections()
                 
-                return iter([pa.flight.Result(json.dumps({"success": True, "id": str(new_id)}).encode())])
+                return iter([pa.flight.Result(json.dumps({"success": True, "id": str(conn_id)}).encode())])
             except sqlite3.IntegrityError:
                  raise pa.flight.FlightServerError(f"Connection with name '{name}' already exists.")
             except Exception as e:
