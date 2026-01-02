@@ -207,16 +207,26 @@ class StreamFlightServer(pa.flight.FlightServerBase):
         try:
             if conn_str.startswith("mssql://"):
                 import pymssql
-                from urllib.parse import urlparse, unquote
+                from urllib.parse import urlparse, unquote, parse_qs
                 u = urlparse(conn_str)
-                conn = pymssql.connect(
-                    server=u.hostname,
-                    user=unquote(u.username) if u.username else None,
-                    password=unquote(u.password) if u.password else None,
-                    database=u.path.lstrip('/'),
-                    port=u.port or 1433,
-                    autocommit=True
-                )
+                
+                # Parse query parameters (e.g. ?charset=CP1254)
+                query_params = parse_qs(u.query)
+                charset = query_params.get('charset', [None])[0]
+                
+                connect_args = {
+                    "server": u.hostname,
+                    "user": unquote(u.username) if u.username else None,
+                    "password": unquote(u.password) if u.password else None,
+                    "database": u.path.lstrip('/'),
+                    "port": u.port or 1433,
+                    "autocommit": True
+                }
+                
+                if charset:
+                    connect_args["charset"] = charset
+
+                conn = pymssql.connect(**connect_args)
                 cursor = conn.cursor()
                 cursor.execute(query)
             
